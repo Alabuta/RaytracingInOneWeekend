@@ -12,12 +12,22 @@ using namespace std::string_view_literals;
 #include <filesystem>
 namespace fs = std::filesystem;
 
+#define GLM_FORCE_CXX17
+#define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
 auto const magic_number{"P6"s};
 
-auto constexpr width{3u};
-auto constexpr height{2u};
+auto constexpr width{256u};
+auto constexpr height{256u};
 
-using rgb_t = std::array<std::uint8_t, 3>;
 
 int main()
 {
@@ -30,30 +40,17 @@ int main()
 
     file << magic_number << '\n' << width << " "s << height << "\n255\n"s;
 
-    std::array<std::array<rgb_t, width>, height> data{{
-        {
-            rgb_t{255, 0, 0}, rgb_t{0, 255, 0}, rgb_t{0, 0, 255}
-        },
-        {
-            rgb_t{255, 255, 0}, rgb_t{255, 255, 255}, rgb_t{0, 0, 0}
-        }
-    }};
-
-    for (auto &&row : data) {
-        for (auto &&column : row) {
-            file.write(reinterpret_cast<char const*>(std::data(column)), std::size(column) * sizeof(rgb_t));
-
-            file.put(' ');
-        }
-
-        file.put('\n');
-    }
-
-    /*for (auto x = 0; x < width; ++x) {
+    for (auto x = 0; x < width; ++x) {
         for (auto y = 0; y < height; ++y) {
-            ;
+            auto r = static_cast<std::uint8_t>(255.f * x / static_cast<float>(width));
+            auto g = static_cast<std::uint8_t>(255.f * y / static_cast<float>(height));
+            auto b = static_cast<std::uint8_t>(255.f * .2f);
+
+            glm::vec<3, std::uint8_t> rgb{r, g, b};
+
+            file.write(reinterpret_cast<char const*>(glm::value_ptr(rgb)), sizeof(rgb));
         }
-    }*/
+    }
 
     std::cout << "Done!\n"; 
 }
