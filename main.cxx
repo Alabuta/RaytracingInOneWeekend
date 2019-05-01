@@ -138,42 +138,41 @@ int main()
     spheres.emplace_back(glm::vec3{0, 0, -1}, .5f);
     spheres.emplace_back(glm::vec3{0, -100.5, -1}, 100.f);
 
-    auto sampling_number = 100u;
+    auto constexpr sampling_number = 32u;
 
     std::vector<glm::vec3> colors(sampling_number, glm::vec3{0});
 
     //auto const start = std::chrono::high_resolution_clock::now();
 
+    std::vector<glm::vec<3, std::uint8_t>> data(app::width * app::height);
+
     for (auto y = 0u; y < app::height; ++y) {
+        auto v = static_cast<float>(y) / static_cast<float>(app::height);
+
         for (auto x = 0u; x < app::width; ++x) {
-            glm::vec3 color{0};
-
             auto u = static_cast<float>(x) / static_cast<float>(app::width);
-            auto v = static_cast<float>(y) / static_cast<float>(app::height);
 
+            std::generate(std::execution::par, std::begin(colors), std::end(colors), [&] ()
             {
-                std::generate(std::execution::par, std::begin(colors), std::end(colors), [&] ()
-                {
-                    auto _u = u + random_distribution(generator) / static_cast<float>(app::width);
-                    auto _v = v + random_distribution(generator) / static_cast<float>(app::height);
+                auto _u = u + random_distribution(generator) / static_cast<float>(app::width);
+                auto _v = v + random_distribution(generator) / static_cast<float>(app::height);
 
-                    return app::color(spheres, camera.ray(_u, _v));
-                });
+                return app::color(spheres, camera.ray(_u, _v));
+            });
 
-                color = std::reduce(std::execution::par, std::begin(colors), std::end(colors), color);
-            }
+            auto color = std::reduce(std::execution::par, std::begin(colors), std::end(colors), glm::vec3{0});
 
             color /= static_cast<float>(sampling_number);
 
-            auto r = static_cast<std::uint8_t>(255.f * color.x);
-            auto g = static_cast<std::uint8_t>(255.f * color.y);
-            auto b = static_cast<std::uint8_t>(255.f * color.z);
+            auto &&rgb = data[x + static_cast<std::size_t>(app::width) * y];
 
-            glm::vec<3, std::uint8_t> rgb{r, g, b};
-
-            file.write(reinterpret_cast<char const*>(glm::value_ptr(rgb)), sizeof(rgb));
+            rgb.r = static_cast<std::uint8_t>(255.f * color.x);
+            rgb.g = static_cast<std::uint8_t>(255.f * color.y);
+            rgb.b = static_cast<std::uint8_t>(255.f * color.z);
         }
     }
+
+    file.write(reinterpret_cast<char const*>(std::data(data)), std::size(data) * sizeof(decltype(data)::value_type));
 
     /*auto const end = std::chrono::high_resolution_clock::now();
 
