@@ -1,6 +1,10 @@
 #include <iostream>
 #include <vector>
 #include <optional>
+#include <random>
+#include <execution>
+#include <numeric>
+#include <chrono>
 
 #include <string>
 #include <string_view>
@@ -23,6 +27,7 @@ namespace fs = std::filesystem;
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
 
 namespace math
 {
@@ -64,13 +69,32 @@ namespace math
 
         return { };
     }
+
+    class camera final {
+    public:
+
+        glm::vec3 origin;
+        glm::vec3 lower_left_corner;
+
+        glm::vec3 horizontal;
+        glm::vec3 vertical;
+        
+        template<class T1, class T2, class T3, class T4>
+        camera(T1 &&origin, T2 &&lower_left_corner, T3 &&horizontal, T4 &&vertical) noexcept
+            : origin{origin}, lower_left_corner{lower_left_corner}, horizontal{horizontal}, vertical{vertical} { };
+
+        ray ray(float u, float v) const noexcept
+        {
+            return {origin, lower_left_corner + horizontal * u + vertical * (1.f - v)};
+        }
+    };
 }
 
 namespace app {
     auto const magic_number{"P6"s};
 
-    auto constexpr width{1024u};
-    auto constexpr height{512u};
+    auto constexpr width{256u};
+    auto constexpr height{128u};
 
     template<class T>
     glm::vec3 color(std::vector<math::sphere> const &spheres, T &&ray)
@@ -102,24 +126,44 @@ int main()
 
     file << app::magic_number << '\n' << app::width << " "s << app::height << "\n255\n"s;
 
-    glm::vec3 origin{0};
-    glm::vec3 lower_left_corner{-2, -1, -1};
+    std::random_device random_device;
+    std::mt19937 generator{random_device()};
 
-    glm::vec3 horizontal{4, 0, 0};
-    glm::vec3 vertical{0, 2, 0};
+    auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
+
+    math::camera camera{glm::vec3{0}, glm::vec3{-2, -1, -1}, glm::vec3{4, 0, 0}, glm::vec3{0, 2, 0}};
 
     std::vector<math::sphere> spheres;
 
     spheres.emplace_back(glm::vec3{0, 0, -1}, .5f);
-    spheres.emplace_back(glm::vec3{0, -100, -1}, 100.f);
+    spheres.emplace_back(glm::vec3{0, -100.5, -1}, 100.f);
 
-    for (auto y = 0; y < app::height; ++y) {
-        for (auto x = 0; x < app::width; ++x) {
-            auto u = x / static_cast<float>(app::width);
-            auto v = y / static_cast<float>(app::height);
+    auto sampling_number = 100u;
 
-            math::ray ray{origin, lower_left_corner + horizontal * u + vertical * (1.f - v)};
-            auto color = app::color(spheres, ray);
+    std::vector<glm::vec3> colors(sampling_number, glm::vec3{0});
+
+    //auto const start = std::chrono::high_resolution_clock::now();
+
+    for (auto y = 0u; y < app::height; ++y) {
+        for (auto x = 0u; x < app::width; ++x) {
+            glm::vec3 color{0};
+
+            auto u = static_cast<float>(x) / static_cast<float>(app::width);
+            auto v = static_cast<float>(y) / static_cast<float>(app::height);
+
+            {
+                std::generate(std::execution::par, std::begin(colors), std::end(colors), [&] ()
+                {
+                    auto _u = u + random_distribution(generator) / static_cast<float>(app::width);
+                    auto _v = v + random_distribution(generator) / static_cast<float>(app::height);
+
+                    return app::color(spheres, camera.ray(_u, _v));
+                });
+
+                color = std::reduce(std::execution::par, std::begin(colors), std::end(colors), color);
+            }
+
+            color /= static_cast<float>(sampling_number);
 
             auto r = static_cast<std::uint8_t>(255.f * color.x);
             auto g = static_cast<std::uint8_t>(255.f * color.y);
@@ -130,5 +174,10 @@ int main()
             file.write(reinterpret_cast<char const*>(glm::value_ptr(rgb)), sizeof(rgb));
         }
     }
+
+    /*auto const end = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<double, std::milli> ms = end - start;
+    std::cout << "reduce aproach took "s << ms.count() << " ms\n"s;*/
 }
 
