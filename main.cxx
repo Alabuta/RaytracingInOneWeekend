@@ -1,10 +1,9 @@
 #include <iostream>
 
-#include <array>
+#include <optional>
 
 #include <string>
 #include <string_view>
-
 using namespace std::string_literals;
 using namespace std::string_view_literals;
 
@@ -32,22 +31,46 @@ namespace app {
     auto constexpr height{512u};
 
     struct ray final {
-        glm::vec3 A;
-        glm::vec3 B;
+        glm::vec3 origin;
+        glm::vec3 direction;
 
         template<class T1, class T2>
-        ray(T1 &&A, T2 &&B) noexcept : A{std::forward<T1>(A)}, B{std::forward<T2>(B)} { }
+        ray(T1 &&origin, T2 &&direction) noexcept : origin{std::forward<T1>(origin)}, direction{std::forward<T2>(direction)} { }
 
-        glm::vec3 const &origin() const noexcept { return A; }
-        glm::vec3 const &direction() const noexcept { return B; }
+        glm::vec3 unit_direction() const noexcept { return glm::normalize(direction); }
 
-        glm::vec3 point_at(float t) const noexcept { return A + B * t; }
+        glm::vec3 point_at(float t) const noexcept { return origin + direction * t; }
     };
 
-    template<class T>
-    glm::vec3 background_color(T &&ray)
+    struct sphere final {
+        glm::vec3 center{0};
+        float radius{1.f};
+
+        template<class T>
+        sphere(T &&center, float radius) noexcept : center{std::forward<T>(center)}, radius{radius} { }
+    };
+
+    template<class T1, class T2, typename std::enable_if_t<std::is_same_v<sphere, std::decay_t<T2>>>...>
+    std::optional<glm::vec3> intersect(T1 &&ray, T2 &&sphere)
     {
-        auto unit_direction = glm::normalize(ray.direction());
+        glm::vec3 position, normal;
+
+        bool intersected = glm::intersectRaySphere(ray.origin, ray.unit_direction(), sphere.center, sphere.radius, position, normal);
+
+        if (intersected)
+            return position;
+
+        return { };
+    }
+
+    template<class T1, class T2>
+    glm::vec3 color(T1 &&ray, T2 &&sphere)
+    {
+        if (auto position = intersect(ray, sphere); position) {
+            return glm::vec3{1, 0, 0};
+        }
+
+        auto unit_direction = ray.unit_direction();
 
         auto t = .5f * unit_direction.y + 1.f;
 
@@ -72,13 +95,15 @@ int main()
     glm::vec3 horizontal{4, 0, 0};
     glm::vec3 vertical{0, 2, 0};
 
+    app::sphere sphere{glm::vec3{0, 0, -1}, .5f};
+
     for (auto y = 0; y < app::height; ++y) {
         for (auto x = 0; x < app::width; ++x) {
             auto u = x / static_cast<float>(app::width);
             auto v = y / static_cast<float>(app::height);
 
             app::ray ray{origin, lower_left_corner + horizontal * u + vertical * (1.f - v)};
-            auto color = app::background_color(ray);
+            auto color = app::color(ray, sphere);
 
             auto r = static_cast<std::uint8_t>(255.f * color.x);
             auto g = static_cast<std::uint8_t>(255.f * color.y);
