@@ -6,6 +6,7 @@
 #include <numeric>
 #include <chrono>
 #include <cmath>
+#include <variant>
 
 #include <string>
 #include <string_view>
@@ -31,9 +32,46 @@ namespace fs = std::filesystem;
 
 
 namespace raytracer {
+struct sphere final {
+    glm::vec3 center{0};
+    float radius{1.f};
+
+    std::size_t material_index;
+
+    template<class T>
+    sphere(T &&center, float radius, std::size_t material_index) noexcept
+        : center{std::forward<T>(center)}, radius{radius}, material_index{material_index} { }
+};
+
+struct dielectric final {
+    glm::vec3 albedo{1};
+
+    dielectric() = default;
+
+    template<class T>
+    dielectric(T &&albedo) noexcept : albedo{std::forward<T>(albedo)} { }
+};
+
+struct metal final {
+    glm::vec3 albedo{1};
+
+    metal() = default;
+
+    template<class T>
+    metal(T &&albedo) noexcept : albedo{std::forward<T>(albedo)} { }
+};
+
+using material = std::variant<dielectric, metal>;
+
 struct data final {
+    static auto constexpr bounces_number = 64u;
+
     std::random_device random_device;
     std::mt19937 generator;
+
+    std::vector<raytracer::sphere> spheres;
+
+    std::vector<material> materials;
 
     data() : generator{random_device()} { }
 };
@@ -53,17 +91,50 @@ struct ray final {
 struct hit final {
     glm::vec3 position{0};
     glm::vec3 normal{0};
+
     float time{0.f};
+
+    std::size_t material_index;
 };
 
-struct sphere final {
-    glm::vec3 center{0};
-    glm::vec3 color{.5f};
-    float radius{1.f};
 
-    template<class T1, class T2>
-    sphere(T1 &&center, T2 &&color, float radius) noexcept : center{std::forward<T1>(center)}, color{std::forward<T2>(color)}, radius{radius} { }
-};
+template<class T1, class T2>
+std::optional<std::pair<raytracer::ray, glm::vec3>> apply_material(raytracer::data &raytracer_data, T1 &&ray, T2 &&hit)
+{
+    auto &&[position, normal, time, material_index] = hit;
+
+    auto const &materials = raytracer_data.materials;
+
+    return std::visit([&] (auto &&material) -> std::optional<std::pair<raytracer::ray, glm::vec3>>
+    {
+        using type = std::decay_t<decltype(material)>;
+
+        if constexpr (std::is_same_v<type, dielectric>) {
+            auto random_direction = raytracer::random_in_unit_sphere(raytracer_data.generator);
+            auto target = position + normal + random_direction;
+
+            auto scattered_ray = raytracer::ray{position, target - position};
+            auto attenuation = material.albedo;
+
+            return std::pair{scattered_ray, attenuation};
+        }
+
+        else if constexpr (std::is_same_v<type, metal>) {
+            auto reflected = glm::reflect(ray.unit_direction(), normal);
+
+            auto scattered_ray = raytracer::ray{position, reflected};
+            auto attenuation = material.albedo;
+
+            if (glm::dot(scattered_ray.direction, normal) > 0.f)
+                return std::pair{scattered_ray, attenuation};
+
+            return { };
+        }
+
+        else static_assert(std::false_type{}, "unsupported material type");
+
+    }, materials[material_index]);
+}
 
 template<class T1, class T2, typename std::enable_if_t<std::is_same_v<raytracer::sphere, std::decay_t<T2>>>...>
 std::optional<hit> intersect(T1 &&ray, T2 &&sphere)
@@ -88,7 +159,8 @@ std::optional<hit> intersect(T1 &&ray, T2 &&sphere)
             return raytracer::hit{
                 position,
                 (position - sphere.center) / sphere.radius,
-                temp
+                temp,
+                sphere.material_index
             };
         }
 
@@ -100,7 +172,8 @@ std::optional<hit> intersect(T1 &&ray, T2 &&sphere)
             return raytracer::hit{
                 position,
                 (position - sphere.center) / sphere.radius,
-                temp
+                temp,
+                sphere.material_index
             };
         }
     }
@@ -156,10 +229,6 @@ struct data final {
     std::random_device random_device;
     std::mt19937 generator;
 
-    std::vector<raytracer::sphere> spheres;
-
-    //raytracer::camera camera;
-
     data() : generator{random_device()} { }
 };
 
@@ -187,29 +256,25 @@ std::optional<raytracer::hit> hit_world(std::vector<raytracer::sphere> const &sp
 }
 
 template<class T>
-glm::vec3 color(app::data &app_data, T &&ray)
+glm::vec3 color(raytracer::data &raytracer_data, T &&ray)
 {
-    auto constexpr bounces_number = 64u;
+    glm::vec3 attenuation{1.f};
 
-    auto constexpr energy_absorbtion = .5f;
+    auto scattered_ray = std::forward<T>(ray);
+    glm::vec3 energy_absorption{0.f};
 
-    auto current_ray = std::forward<T>(ray);
+    for (auto bounce = 0u; bounce < raytracer_data.bounces_number; ++bounce) {
+        if (auto hit = hit_world(raytracer_data.spheres, scattered_ray); hit) {
+            if (auto scattered = raytracer::apply_material(raytracer_data, scattered_ray, hit.value()); scattered) {
+                std::tie(scattered_ray, energy_absorption) = *scattered;
 
-    float attenuation = 1.f;
+                attenuation *= energy_absorption;
+            }
 
-    for (auto bounce = 0u; bounce < bounces_number; ++bounce) {
-            auto &&[position, normal, time] = *hit;
-        if (auto hit = hit_world(app_data.spheres, current_ray); hit) {
-
-            auto random_direction = raytracer::random_in_unit_sphere(app_data.generator);
-            auto target = position + normal + random_direction;
-
-            current_ray = raytracer::ray{position, target - position};
-
-            attenuation *= energy_absorbtion;
+            else return glm::vec3{0};
         }
 
-        else return app::background_color(.5f * current_ray.unit_direction().y + 1.f) * attenuation;
+        else return app::background_color(.5f * scattered_ray.unit_direction().y + 1.f) * attenuation;
     }
 
     return glm::vec3{0};
@@ -218,12 +283,19 @@ glm::vec3 color(app::data &app_data, T &&ray)
 
 int main()
 {
-    app::data app_data;
-
-    app_data.spheres.emplace_back(glm::vec3{0, 0, -1}, .5f, 0);
-    app_data.spheres.emplace_back(glm::vec3{0, -10000.5, -1}, 10000.f, 1);
-
     raytracer::data raytracer_data;
+
+    raytracer_data.materials.emplace_back(raytracer::dielectric{glm::vec3{.8, .4, .4}});
+    raytracer_data.materials.emplace_back(raytracer::metal{glm::vec3{.8, .6, .2}});
+    raytracer_data.materials.emplace_back(raytracer::metal{glm::vec3{.8f}});
+    raytracer_data.materials.emplace_back(raytracer::dielectric{glm::vec3{.8, .8, 0}});
+
+    raytracer_data.spheres.emplace_back(glm::vec3{0, 0, -1}, .5f, 0);
+    raytracer_data.spheres.emplace_back(glm::vec3{+1, 0, -1}, .5f, 1);
+    raytracer_data.spheres.emplace_back(glm::vec3{-1, 0, -1}, .5f, 2);
+    raytracer_data.spheres.emplace_back(glm::vec3{0, -10000.5, -1}, 10000.f, 3);
+
+    app::data app_data;
 
     auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
 
@@ -244,7 +316,7 @@ int main()
                 auto _u = u + random_distribution(raytracer_data.generator) / static_cast<float>(app_data.width);
                 auto _v = v + random_distribution(raytracer_data.generator) / static_cast<float>(app_data.height);
 
-                return app::color(app_data, camera.ray(_u, _v));
+                return app::color(raytracer_data, camera.ray(_u, _v));
             });
 
             auto color = std::reduce(std::execution::par, std::begin(multisampling_texels), std::end(multisampling_texels), glm::vec3{0});
