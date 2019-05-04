@@ -30,7 +30,14 @@ namespace fs = std::filesystem;
 #include <glm/gtc/type_ptr.hpp>
 
 
-namespace math {
+namespace raytracer {
+struct data final {
+    std::random_device random_device;
+    std::mt19937 generator;
+
+    data() : generator{random_device()} { }
+};
+
 struct ray final {
     glm::vec3 origin;
     glm::vec3 direction;
@@ -58,7 +65,7 @@ struct sphere final {
     sphere(T1 &&center, T2 &&color, float radius) noexcept : center{std::forward<T1>(center)}, color{std::forward<T2>(color)}, radius{radius} { }
 };
 
-template<class T1, class T2, typename std::enable_if_t<std::is_same_v<sphere, std::decay_t<T2>>>...>
+template<class T1, class T2, typename std::enable_if_t<std::is_same_v<raytracer::sphere, std::decay_t<T2>>>...>
 std::optional<hit> intersect(T1 &&ray, T2 &&sphere)
 {
     auto constexpr kMAX = std::numeric_limits<float>::max();
@@ -78,7 +85,7 @@ std::optional<hit> intersect(T1 &&ray, T2 &&sphere)
         if (temp < kMAX && temp > kMIN) {
             auto position = ray.point_at(temp);
 
-            return math::hit{
+            return raytracer::hit{
                 position,
                 (position - sphere.center) / sphere.radius,
                 temp
@@ -90,7 +97,7 @@ std::optional<hit> intersect(T1 &&ray, T2 &&sphere)
         if (temp < kMAX && temp > kMIN) {
             auto position = ray.point_at(temp);
 
-            return math::hit{
+            return raytracer::hit{
                 position,
                 (position - sphere.center) / sphere.radius,
                 temp
@@ -140,10 +147,21 @@ public:
 }
 
 namespace app {
-auto const magic_number{"P6"s};
+struct data final {
+    static auto constexpr sampling_number{16u};
 
-auto constexpr width{256u};
-auto constexpr height{128u};
+    std::uint32_t width{256u};
+    std::uint32_t height{128u};
+
+    std::random_device random_device;
+    std::mt19937 generator;
+
+    std::vector<raytracer::sphere> spheres;
+
+    //raytracer::camera camera;
+
+    data() : generator{random_device()} { }
+};
 
 template<class T>
 glm::vec3 constexpr gamma_correction(T &&color)
@@ -159,7 +177,7 @@ glm::vec3 background_color(float t)
 }
 
 template<class T>
-std::optional<math::hit> hit_world(std::vector<math::sphere> const &spheres, T &&ray)
+std::optional<raytracer::hit> hit_world(std::vector<raytracer::sphere> const &spheres, T &&ray)
 {
     for (auto &&sphere : spheres)
         if (auto hit = intersect(ray, sphere); hit)
@@ -169,7 +187,7 @@ std::optional<math::hit> hit_world(std::vector<math::sphere> const &spheres, T &
 }
 
 template<class T>
-glm::vec3 color(std::mt19937 &generator, std::vector<math::sphere> const &spheres, T &&ray)
+glm::vec3 color(app::data &app_data, T &&ray)
 {
     auto constexpr bounces_number = 64u;
 
@@ -180,13 +198,13 @@ glm::vec3 color(std::mt19937 &generator, std::vector<math::sphere> const &sphere
     float attenuation = 1.f;
 
     for (auto bounce = 0u; bounce < bounces_number; ++bounce) {
-        if (auto hit = hit_world(spheres, current_ray); hit) {
             auto &&[position, normal, time] = *hit;
+        if (auto hit = hit_world(app_data.spheres, current_ray); hit) {
 
-            auto random_direction = math::random_in_unit_sphere(generator);
+            auto random_direction = raytracer::random_in_unit_sphere(app_data.generator);
             auto target = position + normal + random_direction;
 
-            current_ray = math::ray{position, target - position};
+            current_ray = raytracer::ray{position, target - position};
 
             attenuation *= energy_absorbtion;
         }
@@ -200,6 +218,49 @@ glm::vec3 color(std::mt19937 &generator, std::vector<math::sphere> const &sphere
 
 int main()
 {
+    app::data app_data;
+
+    app_data.spheres.emplace_back(glm::vec3{0, 0, -1}, .5f, 0);
+    app_data.spheres.emplace_back(glm::vec3{0, -10000.5, -1}, 10000.f, 1);
+
+    raytracer::data raytracer_data;
+
+    auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
+
+    raytracer::camera camera{glm::vec3{0}, glm::vec3{-2, -1, -1}, glm::vec3{4, 0, 0}, glm::vec3{0, 2, 0}};
+
+    std::vector<glm::vec3> multisampling_texels(app_data.sampling_number, glm::vec3{0});
+
+    std::vector<glm::vec<3, std::uint8_t>> data(static_cast<std::size_t>(app_data.width) * app_data.height);
+
+    for (auto y = 0u; y < app_data.height; ++y) {
+        auto v = static_cast<float>(y) / static_cast<float>(app_data.height);
+
+        for (auto x = 0u; x < app_data.width; ++x) {
+            auto u = static_cast<float>(x) / static_cast<float>(app_data.width);
+
+            std::generate(std::execution::par, std::begin(multisampling_texels), std::end(multisampling_texels), [&] ()
+            {
+                auto _u = u + random_distribution(raytracer_data.generator) / static_cast<float>(app_data.width);
+                auto _v = v + random_distribution(raytracer_data.generator) / static_cast<float>(app_data.height);
+
+                return app::color(app_data, camera.ray(_u, _v));
+            });
+
+            auto color = std::reduce(std::execution::par, std::begin(multisampling_texels), std::end(multisampling_texels), glm::vec3{0});
+
+            color /= static_cast<float>(app_data.sampling_number);
+
+            color = app::gamma_correction(color);
+
+            auto &&rgb = data[x + static_cast<std::size_t>(app_data.width) * y];
+
+            rgb.r = static_cast<std::uint8_t>(255.f * color.x);
+            rgb.g = static_cast<std::uint8_t>(255.f * color.y);
+            rgb.b = static_cast<std::uint8_t>(255.f * color.z);
+        }
+    }
+
     fs::path path{"image.ppm"sv};
 
     std::ofstream file{path, std::ios::out | std::ios::trunc | std::ios::binary};
@@ -207,64 +268,7 @@ int main()
     if (file.bad() || file.fail())
         return 1;
 
-    file << app::magic_number << '\n' << app::width << " "s << app::height << "\n255\n"s;
-
-    std::random_device random_device;
-    std::mt19937 generator{random_device()};
-
-    auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
-
-    math::camera camera{glm::vec3{0}, glm::vec3{-2, -1, -1}, glm::vec3{4, 0, 0}, glm::vec3{0, 2, 0}};
-
-    std::vector<math::sphere> spheres;
-
-    spheres.emplace_back(glm::vec3{0, 0, -1}, glm::vec3{1}, .5f);
-    spheres.emplace_back(glm::vec3{0, -10000.5, -1}, glm::vec3{.24, .64, .24}, 10000.f);
-
-    auto constexpr sampling_number = 16u;
-
-    std::vector<glm::vec3> colors(sampling_number, glm::vec3{0});
-
-    std::vector<glm::vec<3, std::uint8_t>> data(app::width * app::height);
-
-    for (auto y = 0u; y < app::height; ++y) {
-        auto v = static_cast<float>(y) / static_cast<float>(app::height);
-
-        for (auto x = 0u; x < app::width; ++x) {
-            auto u = static_cast<float>(x) / static_cast<float>(app::width);
-
-        #if 1
-            std::generate(std::execution::par, std::begin(colors), std::end(colors), [&] ()
-            {
-                auto _u = u + random_distribution(generator) / static_cast<float>(app::width);
-                auto _v = v + random_distribution(generator) / static_cast<float>(app::height);
-
-                return app::color(generator, spheres, camera.ray(_u, _v));
-            });
-
-            auto color = std::reduce(std::execution::par, std::begin(colors), std::end(colors), glm::vec3{0});
-        #else
-            glm::vec3 color{0};
-
-            for (auto sampling = 0u; sampling < sampling_number; ++sampling) {
-                auto _u = u + random_distribution(generator) / static_cast<float>(app::width);
-                auto _v = v + random_distribution(generator) / static_cast<float>(app::height);
-
-                color += app::color(generator, spheres, camera.ray(_u, _v));
-            }
-        #endif
-
-            color /= static_cast<float>(sampling_number);
-
-            color = app::gamma_correction(color);
-
-            auto &&rgb = data[x + static_cast<std::size_t>(app::width) * y];
-
-            rgb.r = static_cast<std::uint8_t>(255.f * color.x);
-            rgb.g = static_cast<std::uint8_t>(255.f * color.y);
-            rgb.b = static_cast<std::uint8_t>(255.f * color.z);
-        }
-    }
+    file << "P6\n"s << app_data.width << " "s << app_data.height << "\n255\n"s;
 
     file.write(reinterpret_cast<char const *>(std::data(data)), std::size(data) * sizeof(decltype(data)::value_type));
 }
