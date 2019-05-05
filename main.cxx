@@ -43,25 +43,36 @@ struct sphere final {
         : center{std::forward<T>(center)}, radius{radius}, material_index{material_index} { }
 };
 
-struct dielectric final {
+struct lambert final {
     glm::vec3 albedo{1};
 
-    dielectric() = default;
+    lambert() = default;
 
     template<class T>
-    dielectric(T &&albedo) noexcept : albedo{std::forward<T>(albedo)} { }
+    lambert(T &&albedo) noexcept : albedo{std::forward<T>(albedo)} { }
 };
 
 struct metal final {
     glm::vec3 albedo{1};
+    float roughness{0};
 
     metal() = default;
 
     template<class T>
-    metal(T &&albedo) noexcept : albedo{std::forward<T>(albedo)} { }
+    metal(T &&albedo, float roughness) noexcept : albedo{std::forward<T>(albedo)}, roughness{roughness} { }
 };
 
-using material = std::variant<dielectric, metal>;
+struct dielectric final {
+    glm::vec3 albedo{1};
+    float refraction_index{1};
+
+    dielectric() = default;
+
+    template<class T>
+    dielectric(T &&albedo, float refraction_index) noexcept : albedo{std::forward<T>(albedo)}, refraction_index{refraction_index} { }
+};
+
+using material = std::variant<lambert, metal, dielectric>;
 
 struct data final {
     static auto constexpr bounces_number = 64u;
@@ -80,6 +91,8 @@ struct ray final {
     glm::vec3 origin;
     glm::vec3 direction;
 
+    ray() = default;
+
     template<class T1, class T2>
     ray(T1 &&origin, T2 &&direction) noexcept : origin{std::forward<T1>(origin)}, direction{std::forward<T2>(direction)} { }
 
@@ -97,20 +110,27 @@ struct hit final {
     std::size_t material_index;
 };
 
+float schlick_reflection_probability(float refraction_index, float cosine_theta)
+{
+    auto reflection_coefficient = std::pow((1.f - refraction_index) / (1.f + refraction_index), 2);
+
+    return reflection_coefficient + (1.f - reflection_coefficient) * std::pow(1.f - cosine_theta, 5);
+}
 
 template<class T1, class T2>
 std::optional<std::pair<raytracer::ray, glm::vec3>> apply_material(raytracer::data &raytracer_data, T1 &&ray, T2 &&hit)
 {
     auto &&[position, normal, time, material_index] = hit;
 
+    auto &&generator = raytracer_data.generator;
     auto const &materials = raytracer_data.materials;
 
     return std::visit([&] (auto &&material) -> std::optional<std::pair<raytracer::ray, glm::vec3>>
     {
         using type = std::decay_t<decltype(material)>;
 
-        if constexpr (std::is_same_v<type, dielectric>) {
-            auto random_direction = raytracer::random_in_unit_sphere(raytracer_data.generator);
+        if constexpr (std::is_same_v<type, lambert>) {
+            auto random_direction = raytracer::random_in_unit_sphere(generator);
             auto target = position + normal + random_direction;
 
             auto scattered_ray = raytracer::ray{position, target - position};
@@ -122,13 +142,52 @@ std::optional<std::pair<raytracer::ray, glm::vec3>> apply_material(raytracer::da
         else if constexpr (std::is_same_v<type, metal>) {
             auto reflected = glm::reflect(ray.unit_direction(), normal);
 
-            auto scattered_ray = raytracer::ray{position, reflected};
+            auto random_direction = raytracer::random_in_unit_sphere(generator);
+
+            auto scattered_ray = raytracer::ray{position, reflected + random_direction * material.roughness};
             auto attenuation = material.albedo;
 
             if (glm::dot(scattered_ray.direction, normal) > 0.f)
                 return std::pair{scattered_ray, attenuation};
 
             return { };
+        }
+
+        else if constexpr (std::is_same_v<type, dielectric>) {
+            auto outward_normal = -normal;
+            auto refraction_index = material.refraction_index;;
+            auto cosine_theta = glm::dot(ray.unit_direction(), normal);
+
+            if (cosine_theta <= 0.f) {
+                outward_normal *= -1.f;
+                refraction_index = 1.f / refraction_index;
+                cosine_theta *= -1.f;
+            }
+
+            //else cosine_theta *= refraction_index;
+
+            //cosine_theta /= glm::length(ray.direction);
+
+            auto attenuation = material.albedo;
+            auto refracted = glm::refract(ray.unit_direction(), outward_normal, refraction_index);
+
+            auto reflection_probability = 1.f;
+
+            if (glm::length(refracted) > 0.f)
+                reflection_probability = raytracer::schlick_reflection_probability(refraction_index, cosine_theta);
+
+            static auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
+
+            raytracer::ray scattered_ray;
+
+            if (random_distribution(generator) < reflection_probability) {
+                auto reflected = glm::reflect(ray.unit_direction(), normal);
+                scattered_ray = raytracer::ray{position, reflected};
+            }
+
+            else scattered_ray = raytracer::ray{position, refracted};
+
+            return std::pair{scattered_ray, attenuation};
         }
 
         else static_assert(std::false_type{}, "unsupported material type");
@@ -285,15 +344,15 @@ int main()
 {
     raytracer::data raytracer_data;
 
-    raytracer_data.materials.emplace_back(raytracer::dielectric{glm::vec3{.8, .4, .4}});
-    raytracer_data.materials.emplace_back(raytracer::metal{glm::vec3{.8, .6, .2}});
-    raytracer_data.materials.emplace_back(raytracer::metal{glm::vec3{.8f}});
-    raytracer_data.materials.emplace_back(raytracer::dielectric{glm::vec3{.8, .8, 0}});
+    raytracer_data.materials.emplace_back(raytracer::lambert{glm::vec3{.1, .2, .5}});
+    raytracer_data.materials.emplace_back(raytracer::metal{glm::vec3{.8, .6, .2}, 0});
+    raytracer_data.materials.emplace_back(raytracer::dielectric{glm::vec3{1}, 1.5f});
+    raytracer_data.materials.emplace_back(raytracer::lambert{glm::vec3{.8, .8, 0}});
 
     raytracer_data.spheres.emplace_back(glm::vec3{0, 0, -1}, .5f, 0);
     raytracer_data.spheres.emplace_back(glm::vec3{+1, 0, -1}, .5f, 1);
     raytracer_data.spheres.emplace_back(glm::vec3{-1, 0, -1}, .5f, 2);
-    raytracer_data.spheres.emplace_back(glm::vec3{0, -10000.5, -1}, 10000.f, 3);
+    raytracer_data.spheres.emplace_back(glm::vec3{0, -100.5, -1}, 100.f, 3);
 
     app::data app_data;
 
