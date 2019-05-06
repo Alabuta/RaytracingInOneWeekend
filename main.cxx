@@ -196,11 +196,8 @@ std::optional<std::pair<raytracer::ray, glm::vec3>> apply_material(raytracer::da
 }
 
 template<class T1, class T2, typename std::enable_if_t<std::is_same_v<raytracer::sphere, std::decay_t<T2>>>...>
-std::optional<hit> intersect(T1 &&ray, T2 &&sphere)
+std::optional<hit> intersect(T1 &&ray, T2 &&sphere, float time_min, float time_max)
 {
-    auto constexpr kMAX = std::numeric_limits<float>::max();
-    auto constexpr kMIN = .008f;
-
     auto oc = ray.origin - sphere.center;
 
     auto a = glm::dot(ray.direction, ray.direction);
@@ -212,7 +209,7 @@ std::optional<hit> intersect(T1 &&ray, T2 &&sphere)
     if (discriminant > 0.f) {
         float temp = (-b - std::sqrt(b * b - a * c)) / a;
 
-        if (temp < kMAX && temp > kMIN) {
+        if (temp < time_max && temp > time_min) {
             auto position = ray.point_at(temp);
 
             return raytracer::hit{
@@ -225,7 +222,7 @@ std::optional<hit> intersect(T1 &&ray, T2 &&sphere)
 
         temp = (-b + std::sqrt(b * b - a * c)) / a;
 
-        if (temp < kMAX && temp > kMIN) {
+        if (temp < time_max && temp > time_min) {
             auto position = ray.point_at(temp);
 
             return raytracer::hit{
@@ -236,11 +233,6 @@ std::optional<hit> intersect(T1 &&ray, T2 &&sphere)
             };
         }
     }
-
-    /*bool intersected = glm::intersectRaySphere(ray.origin, ray.unit_direction(), sphere.center, sphere.radius, hit.position, hit.normal);
-
-    if (intersected)
-        return hit;*/
 
     return { };
 }
@@ -326,20 +318,37 @@ glm::vec3 background_color(float t)
 template<class T>
 std::optional<raytracer::hit> hit_world(std::vector<raytracer::sphere> const &spheres, T &&ray)
 {
-    for (auto &&sphere : spheres)
-        if (auto hit = intersect(ray, sphere); hit)
-            return hit;
+    auto constexpr kMAX = std::numeric_limits<float>::max();
+    auto constexpr kMIN = .008f;
 
-    return { };
+    std::vector<std::optional<raytracer::hit>> hits(std::size(spheres));
+
+    std::transform(std::execution::seq, std::cbegin(spheres), std::cend(spheres), std::begin(hits), [&ray, kMIN, kMAX] (auto && sphere)
+    {
+        return raytracer::intersect(ray, sphere, kMIN, kMAX);
+    });
+
+
+    auto it_end = std::stable_partition(std::execution::par, std::begin(hits), std::end(hits), [] (auto &&hit)
+    {
+        return hit.has_value();
+    });
+
+    auto it_hit = std::min_element(std::execution::par_unseq, std::begin(hits), it_end, [] (auto &&lhs, auto &&rhs)
+    {
+        return lhs->time < rhs->time;
+    });
+
+    return it_hit != it_end ? *it_hit : std::optional<raytracer::hit>{ };
 }
 
 template<class T>
 glm::vec3 color(raytracer::data &raytracer_data, T &&ray)
 {
-    glm::vec3 attenuation{1.f};
+    glm::vec3 attenuation{1};
 
     auto scattered_ray = std::forward<T>(ray);
-    glm::vec3 energy_absorption{0.f};
+    glm::vec3 energy_absorption{0};
 
     for (auto bounce = 0u; bounce < raytracer_data.bounces_number; ++bounce) {
         if (auto hit = hit_world(raytracer_data.spheres, scattered_ray); hit) {
@@ -368,18 +377,19 @@ int main()
     raytracer_data.materials.emplace_back(raytracer::dielectric{glm::vec3{1}, 1.5f});
     raytracer_data.materials.emplace_back(raytracer::lambert{glm::vec3{.8, .8, 0}});
 
-    raytracer_data.spheres.emplace_back(glm::vec3{0, 0, -1}, .5f, 0);
-    raytracer_data.spheres.emplace_back(glm::vec3{+1, 0, -1}, .5f, 1);
-    raytracer_data.spheres.emplace_back(glm::vec3{-1, 0, -1}, .5f, 2);
+    raytracer_data.spheres.emplace_back(glm::vec3{0, 0, -1}, .48f, 0);
     raytracer_data.spheres.emplace_back(glm::vec3{0, -100.5, -1}, 100.f, 3);
+    raytracer_data.spheres.emplace_back(glm::vec3{+1, 0, -1}, .48f, 1);
+    raytracer_data.spheres.emplace_back(glm::vec3{-1, 0, -1}, .48f, 2);
+    raytracer_data.spheres.emplace_back(glm::vec3{-1, 0, -1}, -.44f, 2);
 
     app::data app_data;
 
     auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
 
     raytracer::camera camera{
-        glm::vec3{-2, 2, 1}, glm::vec3{0, 0, -1}, glm::vec3{0, 1, 0},
-        static_cast<float>(app_data.width) / static_cast<float>(app_data.height), 30.f
+        glm::vec3{-2, 1.2, 1.6}, glm::vec3{0, 0, -1}, glm::vec3{0, 1, 0},
+        static_cast<float>(app_data.width) / static_cast<float>(app_data.height), 42.f
     };
 
     std::vector<glm::vec3> multisampling_texels(app_data.sampling_number, glm::vec3{0});
@@ -400,7 +410,7 @@ int main()
                 return app::color(raytracer_data, camera.ray(_u, _v));
             });
 
-            auto color = std::reduce(std::execution::par, std::begin(multisampling_texels), std::end(multisampling_texels), glm::vec3{0});
+            auto color = std::reduce(std::execution::seq, std::begin(multisampling_texels), std::end(multisampling_texels), glm::vec3{0});
 
             color /= static_cast<float>(app_data.sampling_number);
 
