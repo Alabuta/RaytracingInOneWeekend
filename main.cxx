@@ -267,13 +267,32 @@ public:
     glm::vec3 horizontal;
     glm::vec3 vertical;
 
-    template<class T1, class T2, class T3, class T4>
-    camera(T1 &&origin, T2 &&lower_left_corner, T3 &&horizontal, T4 &&vertical) noexcept
-        : origin{origin}, lower_left_corner{lower_left_corner}, horizontal{horizontal}, vertical{vertical} { };
+    float aspect{1.f};
+    float vFOV{glm::radians(72.f)};
+
+    camera(glm::vec3 position, glm::vec3 lookat, glm::vec3 up, float aspect, float vFOV) noexcept : aspect{aspect}, vFOV{vFOV}
+    {
+        auto theta = glm::radians(vFOV) / 2.f;
+
+        auto height = std::tan(theta);
+        auto width = height * aspect;
+
+        origin = position;
+
+        auto w = glm::normalize(position - lookat);
+        auto u = glm::normalize(glm::cross(up, w));
+        auto v = glm::normalize(glm::cross(w, u));
+
+        //lower_left_corner = glm::vec3{-width, -height, -1.f};
+        lower_left_corner = origin - width * u - height * v - w;
+
+        horizontal = 2.f * u * width;
+        vertical = 2.f * v * height;
+    }
 
     ray ray(float u, float v) const noexcept
     {
-        return {origin, lower_left_corner + horizontal * u + vertical * (1.f - v)};
+        return {origin, lower_left_corner + horizontal * u + vertical * (1.f - v) - origin};
     }
 };
 }
@@ -358,7 +377,10 @@ int main()
 
     auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
 
-    raytracer::camera camera{glm::vec3{0}, glm::vec3{-2, -1, -1}, glm::vec3{4, 0, 0}, glm::vec3{0, 2, 0}};
+    raytracer::camera camera{
+        glm::vec3{-2, 2, 1}, glm::vec3{0, 0, -1}, glm::vec3{0, 1, 0},
+        static_cast<float>(app_data.width) / static_cast<float>(app_data.height), 30.f
+    };
 
     std::vector<glm::vec3> multisampling_texels(app_data.sampling_number, glm::vec3{0});
 
