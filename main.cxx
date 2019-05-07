@@ -253,39 +253,49 @@ glm::vec3 random_in_unit_sphere(std::mt19937 &generator)
 class camera final {
 public:
 
-    glm::vec3 origin;
-    glm::vec3 lower_left_corner;
-
-    glm::vec3 horizontal;
-    glm::vec3 vertical;
-
     float aspect{1.f};
     float vFOV{glm::radians(72.f)};
 
-    camera(glm::vec3 position, glm::vec3 lookat, glm::vec3 up, float aspect, float vFOV) noexcept : aspect{aspect}, vFOV{vFOV}
+    float lens_radius{1.f};
+
+    camera(glm::vec3 position, glm::vec3 lookat, glm::vec3 up, float aspect, float vFOV, float aperture, float focal_length) noexcept
+        : aspect{aspect}, vFOV{vFOV}, lens_radius{aperture / 2.f}, generator{random_device()}, origin{position}
     {
         auto theta = glm::radians(vFOV) / 2.f;
 
         auto height = std::tan(theta);
         auto width = height * aspect;
 
-        origin = position;
-
         auto w = glm::normalize(position - lookat);
         auto u = glm::normalize(glm::cross(up, w));
         auto v = glm::normalize(glm::cross(w, u));
 
-        //lower_left_corner = glm::vec3{-width, -height, -1.f};
-        lower_left_corner = origin - width * u - height * v - w;
+        lower_left_corner = origin - (width * u + height * v + w) * focal_length;
 
-        horizontal = 2.f * u * width;
-        vertical = 2.f * v * height;
+        horizontal = 2.f * u * width * focal_length;
+        vertical = 2.f * v * height * focal_length;
     }
 
-    ray ray(float u, float v) const noexcept
+    raytracer::ray ray(float u, float v) noexcept
     {
-        return {origin, lower_left_corner + horizontal * u + vertical * (1.f - v) - origin};
+        auto random_direction = raytracer::random_in_unit_sphere(generator) * lens_radius;
+
+        glm::vec3 offset{u * random_direction.x , v * random_direction.y, 0};
+
+        return {origin + offset, lower_left_corner + horizontal * u + vertical * (1.f - v) - origin - offset};
     }
+
+private:
+
+    std::random_device random_device;
+    std::mt19937 generator;
+
+    glm::vec3 origin;
+
+    glm::vec3 lower_left_corner;
+
+    glm::vec3 horizontal;
+    glm::vec3 vertical;
 };
 }
 
@@ -388,8 +398,9 @@ int main()
     auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
 
     raytracer::camera camera{
-        glm::vec3{-2, 1.2, 1.6}, glm::vec3{0, 0, -1}, glm::vec3{0, 1, 0},
-        static_cast<float>(app_data.width) / static_cast<float>(app_data.height), 42.f
+        glm::vec3{-4, 3.2, 5}, glm::vec3{0, 1, 0}, glm::vec3{0, 1, 0},
+        static_cast<float>(app_data.width) / static_cast<float>(app_data.height), 42.f,
+        0.0625f, glm::distance(glm::vec3{-4, 3.2, 5}, glm::vec3{0, 1, 0})
     };
 
     std::vector<glm::vec3> multisampling_texels(app_data.sampling_number, glm::vec3{0});
