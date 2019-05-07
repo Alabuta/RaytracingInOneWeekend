@@ -303,8 +303,8 @@ namespace app {
 struct data final {
     static auto constexpr sampling_number{16u};
 
-    std::uint32_t width{256u};
-    std::uint32_t height{128u};
+    std::uint32_t width{1920u};
+    std::uint32_t height{1080u};
 
     std::random_device random_device;
     std::mt19937 generator;
@@ -385,17 +385,63 @@ int main()
     raytracer_data.materials.emplace_back(raytracer::lambert{glm::vec3{.1, .2, .5}});
     raytracer_data.materials.emplace_back(raytracer::metal{glm::vec3{.8, .6, .2}, 0});
     raytracer_data.materials.emplace_back(raytracer::dielectric{glm::vec3{1}, 1.5f});
-    raytracer_data.materials.emplace_back(raytracer::lambert{glm::vec3{.8, .8, 0}});
+    raytracer_data.materials.emplace_back(raytracer::lambert{glm::vec3{.64, .8, .0}});
 
-    raytracer_data.spheres.emplace_back(glm::vec3{0, 0, -1}, .48f, 0);
-    raytracer_data.spheres.emplace_back(glm::vec3{0, -100.5, -1}, 100.f, 3);
-    raytracer_data.spheres.emplace_back(glm::vec3{+1, 0, -1}, .48f, 1);
-    raytracer_data.spheres.emplace_back(glm::vec3{-1, 0, -1}, .48f, 2);
-    raytracer_data.spheres.emplace_back(glm::vec3{-1, 0, -1}, -.44f, 2);
+    raytracer_data.spheres.emplace_back(glm::vec3{0, 1, 0}, 1.f, 0);
+    raytracer_data.spheres.emplace_back(glm::vec3{0, -1000.125f, 0}, 1000.f, 3);
+    raytracer_data.spheres.emplace_back(glm::vec3{+2, 1, 0}, 1.f, 1);
+    raytracer_data.spheres.emplace_back(glm::vec3{-2, 1, 0}, 1.f, 2);
+    raytracer_data.spheres.emplace_back(glm::vec3{-2, 1, 0}, -.99f, 2);
+
+#if 0
+    {
+        std::random_device random_device;
+        std::mt19937 generator{random_device()};
+
+        auto rd_int = std::uniform_int_distribution{0, 3};
+        auto rd_real = std::uniform_real_distribution{0.f, 1.f};
+
+        for (auto a = -11; a < 11; ++a) {
+            for (auto b = -11; b < 11; ++b) {
+                auto material_type_index = rd_int(generator);
+
+                glm::vec3 center{.9f * rd_real(generator) + a, .2f, .9f * rd_real(generator) + b};
+
+                if (glm::distance(center, glm::vec3{0, 1, 0}) < 1.f)
+                    continue;
+
+                raytracer_data.spheres.emplace_back(
+                    center, .2f, std::size(raytracer_data.materials)
+                );
+
+                switch (material_type_index) {
+                    case 0:
+                        raytracer_data.materials.emplace_back(
+                            raytracer::lambert{glm::vec3{rd_real(generator), rd_real(generator), rd_real(generator)}}
+                        );
+                        break;
+
+                    case 1:
+                        raytracer_data.materials.emplace_back(
+                            raytracer::metal{glm::vec3{rd_real(generator), rd_real(generator), rd_real(generator)}, .5f * rd_real(generator)}
+                        );
+                        break;
+
+                    case 2:
+                        raytracer_data.materials.emplace_back(
+                            raytracer::dielectric{glm::vec3{rd_real(generator), rd_real(generator), rd_real(generator)}, 1.5f}
+                        );
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+#endif
 
     app::data app_data;
-
-    auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
 
     raytracer::camera camera{
         glm::vec3{-4, 3.2, 5}, glm::vec3{0, 1, 0}, glm::vec3{0, 1, 0},
@@ -406,6 +452,8 @@ int main()
     std::vector<glm::vec3> multisampling_texels(app_data.sampling_number, glm::vec3{0});
 
     std::vector<glm::vec<3, std::uint8_t>> data(static_cast<std::size_t>(app_data.width) * app_data.height);
+
+    auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
 
     for (auto y = 0u; y < app_data.height; ++y) {
         auto v = static_cast<float>(y) / static_cast<float>(app_data.height);
