@@ -10,23 +10,11 @@
 *.tmp
 *.user
 
-*_140.*
 
 .vs/
 build/
-[Bb]in/
-[Bb]in_d/
+out/
 x64/
 x86/
 Debug/
 Release/
-Win32/
-[Tt]emp/
-.mayaSwatches/
-.vscode/
-*.spv
-GSL/
-.idea
-cmake
-cmake-build-debug
-cmake-build-release

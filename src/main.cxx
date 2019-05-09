@@ -1,34 +1,6 @@
-#include <iostream>
-#include <vector>
-#include <optional>
-#include <random>
-#include <execution>
-#include <numeric>
-#include <chrono>
-#include <cmath>
-#include <variant>
+#include "main.hxx"
 
-#include <string>
-#include <string_view>
-using namespace std::string_literals;
-using namespace std::string_view_literals;
-
-#include <fstream>
-#include <filesystem>
-namespace fs = std::filesystem;
-
-#define GLM_FORCE_CXX17
-#define GLM_ENABLE_EXPERIMENTAL
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define GLM_GTX_intersect
-
-#include <glm/glm.hpp>
-#include <glm/gtx/intersect.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/matrix_inverse.hpp>
-#include <glm/gtc/type_ptr.hpp>
+double total = 0.;
 
 
 namespace raytracer {
@@ -343,11 +315,17 @@ std::optional<raytracer::hit> hit_world(std::vector<raytracer::sphere> const &sp
         return raytracer::intersect(ray, sphere, kMIN, kMAX);
     });
 
+    //auto const start = std::chrono::high_resolution_clock::now();
 
     auto it_end = std::stable_partition(std::execution::par, std::begin(hits), std::end(hits), [] (auto &&hit)
     {
         return hit.has_value();
     });
+
+    /*auto const end = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<double, std::milli> ms = end - start;
+    total += ms.count();*/
 
     auto it_hit = std::min_element(std::execution::par_unseq, std::begin(hits), it_end, [] (auto &&lhs, auto &&rhs)
     {
@@ -385,6 +363,8 @@ glm::vec3 color(raytracer::data &raytracer_data, T &&ray)
 
 int main()
 {
+    std::cout << "started... \n"s;
+
     raytracer::data raytracer_data;
 
     raytracer_data.materials.emplace_back(raytracer::lambert{glm::vec3{.1, .2, .5}});
@@ -487,6 +467,7 @@ int main()
             rgb.b = static_cast<std::uint8_t>(255.f * color.z);
         }
     }
+    std::cout << "reduce aproach took "s << total / (static_cast<double>(app_data.width) * app_data.height) << " ms\n"s;
 
     fs::path path{"image.ppm"sv};
 
