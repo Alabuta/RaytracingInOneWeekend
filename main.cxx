@@ -258,7 +258,7 @@ public:
 
     float lens_radius{1.f};
 
-    camera(glm::vec3 position, glm::vec3 lookat, glm::vec3 up, float aspect, float vFOV, float aperture, float focal_length) noexcept
+    camera(glm::vec3 position, glm::vec3 lookat, glm::vec3 up, float aspect, float vFOV, float aperture, float focus_distance) noexcept
         : aspect{aspect}, vFOV{vFOV}, lens_radius{aperture / 2.f}, generator{random_device()}, origin{position}
     {
         auto theta = glm::radians(vFOV) / 2.f;
@@ -270,10 +270,10 @@ public:
         auto u = glm::normalize(glm::cross(up, w));
         auto v = glm::normalize(glm::cross(w, u));
 
-        lower_left_corner = origin - (width * u + height * v + w) * focal_length;
+        lower_left_corner = origin - (width * u + height * v + w) * focus_distance;
 
-        horizontal = 2.f * u * width * focal_length;
-        vertical = 2.f * v * height * focal_length;
+        horizontal = 2.f * u * width * focus_distance;
+        vertical = 2.f * v * height * focus_distance;
     }
 
     raytracer::ray ray(float u, float v) noexcept
@@ -303,8 +303,13 @@ namespace app {
 struct data final {
     static auto constexpr sampling_number{16u};
 
+#ifdef _DEBUG
+    std::uint32_t width{256u};
+    std::uint32_t height{128u};
+#else
     std::uint32_t width{1920u};
     std::uint32_t height{1080u};
+#endif
 
     std::random_device random_device;
     std::mt19937 generator;
