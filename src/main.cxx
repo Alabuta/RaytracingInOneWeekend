@@ -3,273 +3,6 @@
 double total = 0.;
 
 
-namespace raytracer {
-struct sphere final {
-    glm::vec3 center{0};
-    float radius{1.f};
-
-    std::size_t material_index;
-
-    template<class T>
-    sphere(T &&center, float radius, std::size_t material_index) noexcept
-        : center{std::forward<T>(center)}, radius{radius}, material_index{material_index} { }
-};
-
-struct lambert final {
-    glm::vec3 albedo{1};
-
-    lambert() = default;
-
-    template<class T>
-    lambert(T &&albedo) noexcept : albedo{std::forward<T>(albedo)} { }
-};
-
-struct metal final {
-    glm::vec3 albedo{1};
-    float roughness{0};
-
-    metal() = default;
-
-    template<class T>
-    metal(T &&albedo, float roughness) noexcept : albedo{std::forward<T>(albedo)}, roughness{roughness} { }
-};
-
-struct dielectric final {
-    glm::vec3 albedo{1};
-    float refraction_index{1};
-
-    dielectric() = default;
-
-    template<class T>
-    dielectric(T &&albedo, float refraction_index) noexcept : albedo{std::forward<T>(albedo)}, refraction_index{refraction_index} { }
-};
-
-using material = std::variant<lambert, metal, dielectric>;
-
-struct data final {
-    static auto constexpr bounces_number = 64u;
-
-    std::random_device random_device;
-    std::mt19937 generator;
-
-    std::vector<raytracer::sphere> spheres;
-
-    std::vector<material> materials;
-
-    data() : generator{random_device()} { }
-};
-
-struct ray final {
-    glm::vec3 origin;
-    glm::vec3 direction;
-
-    ray() = default;
-
-    template<class T1, class T2>
-    ray(T1 &&origin, T2 &&direction) noexcept : origin{std::forward<T1>(origin)}, direction{std::forward<T2>(direction)} { }
-
-    glm::vec3 unit_direction() const noexcept { return glm::normalize(direction); }
-
-    glm::vec3 point_at(float t) const noexcept { return origin + direction * t; }
-};
-
-struct hit final {
-    glm::vec3 position{0};
-    glm::vec3 normal{0};
-
-    float time{0.f};
-
-    std::size_t material_index;
-};
-
-float schlick_reflection_probability(float refraction_index, float cosine_theta)
-{
-    auto reflection_coefficient = std::pow((1.f - refraction_index) / (1.f + refraction_index), 2);
-
-    return reflection_coefficient + (1.f - reflection_coefficient) * std::pow(1.f - cosine_theta, 5);
-}
-
-template<class T1, class T2>
-std::optional<std::pair<raytracer::ray, glm::vec3>> apply_material(raytracer::data &raytracer_data, T1 &&ray, T2 &&hit)
-{
-    auto &&[position, normal, time, material_index] = hit;
-
-    auto &&generator = raytracer_data.generator;
-    auto const &materials = raytracer_data.materials;
-
-    return std::visit([&] (auto &&material) -> std::optional<std::pair<raytracer::ray, glm::vec3>>
-    {
-        using type = std::decay_t<decltype(material)>;
-
-        if constexpr (std::is_same_v<type, lambert>) {
-            auto random_direction = raytracer::random_in_unit_sphere(generator);
-            auto target = position + normal + random_direction;
-
-            auto scattered_ray = raytracer::ray{position, target - position};
-            auto attenuation = material.albedo;
-
-            return std::pair{scattered_ray, attenuation};
-        }
-
-        else if constexpr (std::is_same_v<type, metal>) {
-            auto reflected = glm::reflect(ray.unit_direction(), normal);
-
-            auto random_direction = raytracer::random_in_unit_sphere(generator);
-
-            auto scattered_ray = raytracer::ray{position, reflected + random_direction * material.roughness};
-            auto attenuation = material.albedo;
-
-            if (glm::dot(scattered_ray.direction, normal) > 0.f)
-                return std::pair{scattered_ray, attenuation};
-
-            return { };
-        }
-
-        else if constexpr (std::is_same_v<type, dielectric>) {
-            auto outward_normal = -normal;
-            auto refraction_index = material.refraction_index;;
-            auto cosine_theta = glm::dot(ray.unit_direction(), normal);
-
-            if (cosine_theta <= 0.f) {
-                outward_normal *= -1.f;
-                refraction_index = 1.f / refraction_index;
-                cosine_theta *= -1.f;
-            }
-
-            //else cosine_theta *= refraction_index;
-
-            //cosine_theta /= glm::length(ray.direction);
-
-            auto attenuation = material.albedo;
-            auto refracted = glm::refract(ray.unit_direction(), outward_normal, refraction_index);
-
-            auto reflection_probability = 1.f;
-
-            if (glm::length(refracted) > 0.f)
-                reflection_probability = raytracer::schlick_reflection_probability(refraction_index, cosine_theta);
-
-            static auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
-
-            raytracer::ray scattered_ray;
-
-            if (random_distribution(generator) < reflection_probability) {
-                auto reflected = glm::reflect(ray.unit_direction(), normal);
-                scattered_ray = raytracer::ray{position, reflected};
-            }
-
-            else scattered_ray = raytracer::ray{position, refracted};
-
-            return std::pair{scattered_ray, attenuation};
-        }
-
-        else static_assert(std::false_type{}, "unsupported material type");
-
-    }, materials[material_index]);
-}
-
-template<class T1, class T2, typename std::enable_if_t<std::is_same_v<raytracer::sphere, std::decay_t<T2>>>...>
-std::optional<hit> intersect(T1 &&ray, T2 &&sphere, float time_min, float time_max)
-{
-    auto oc = ray.origin - sphere.center;
-
-    auto a = glm::dot(ray.direction, ray.direction);
-    auto b = glm::dot(oc, ray.direction);
-    auto c = glm::dot(oc, oc) - sphere.radius * sphere.radius;
-
-    auto discriminant = b * b - a * c;
-
-    if (discriminant > 0.f) {
-        float temp = (-b - std::sqrt(b * b - a * c)) / a;
-
-        if (temp < time_max && temp > time_min) {
-            auto position = ray.point_at(temp);
-
-            return raytracer::hit{
-                position,
-                (position - sphere.center) / sphere.radius,
-                temp,
-                sphere.material_index
-            };
-        }
-
-        temp = (-b + std::sqrt(b * b - a * c)) / a;
-
-        if (temp < time_max && temp > time_min) {
-            auto position = ray.point_at(temp);
-
-            return raytracer::hit{
-                position,
-                (position - sphere.center) / sphere.radius,
-                temp,
-                sphere.material_index
-            };
-        }
-    }
-
-    return { };
-}
-
-glm::vec3 random_in_unit_sphere(std::mt19937 &generator)
-{
-    static auto random_distribution = std::uniform_real_distribution{-1.f, +1.f};
-
-    glm::vec3 vector;
-
-    do {
-        vector = glm::vec3{random_distribution(generator), random_distribution(generator), random_distribution(generator)};
-    } while (glm::length(vector) > 1.f);
-
-    return vector;
-}
-
-class camera final {
-public:
-
-    float aspect{1.f};
-    float vFOV{glm::radians(72.f)};
-
-    float lens_radius{1.f};
-
-    camera(glm::vec3 position, glm::vec3 lookat, glm::vec3 up, float aspect, float vFOV, float aperture, float focus_distance) noexcept
-        : aspect{aspect}, vFOV{vFOV}, lens_radius{aperture / 2.f}, generator{random_device()}, origin{position}
-    {
-        auto theta = glm::radians(vFOV) / 2.f;
-
-        auto height = std::tan(theta);
-        auto width = height * aspect;
-
-        auto w = glm::normalize(position - lookat);
-        auto u = glm::normalize(glm::cross(up, w));
-        auto v = glm::normalize(glm::cross(w, u));
-
-        lower_left_corner = origin - (width * u + height * v + w) * focus_distance;
-
-        horizontal = 2.f * u * width * focus_distance;
-        vertical = 2.f * v * height * focus_distance;
-    }
-
-    raytracer::ray ray(float u, float v) noexcept
-    {
-        auto random_direction = raytracer::random_in_unit_sphere(generator) * lens_radius;
-
-        glm::vec3 offset{u * random_direction.x , v * random_direction.y, 0};
-
-        return {origin + offset, lower_left_corner + horizontal * u + vertical * (1.f - v) - origin - offset};
-    }
-
-private:
-
-    std::random_device random_device;
-    std::mt19937 generator;
-
-    glm::vec3 origin;
-
-    glm::vec3 lower_left_corner;
-
-    glm::vec3 horizontal;
-    glm::vec3 vertical;
-};
-}
 
 namespace app {
 struct data final {
@@ -359,6 +92,32 @@ glm::vec3 color(raytracer::data &raytracer_data, T &&ray)
 
     return glm::vec3{0};
 }
+
+template<class T>
+glm::vec<3, std::uint8_t> normalize_rgb_to_8bit(T &&color)
+{
+    return {
+        static_cast<std::uint8_t>(255.f * color.x),
+        static_cast<std::uint8_t>(255.f * color.y),
+        static_cast<std::uint8_t>(255.f * color.z)
+    };
+}
+
+void save_to_file(std::string_view name, app::data const &app_data, std::vector<glm::vec<3, std::uint8_t>> const &texels_data)
+{
+    fs::path path{name};
+
+    std::ofstream file{path, std::ios::out | std::ios::trunc | std::ios::binary};
+
+    if (file.bad() || file.fail())
+        throw std::runtime_error("bad file"s);
+
+    file << "P6\n"s << app_data.width << " "s << app_data.height << "\n255\n"s;
+
+    using texel_type = std::decay_t<decltype(texels_data)>::value_type;
+
+    file.write(reinterpret_cast<char const *>(std::data(texels_data)), std::size(texels_data) * sizeof(texel_type));
+}
 }
 
 int main()
@@ -367,10 +126,10 @@ int main()
 
     raytracer::data raytracer_data;
 
-    raytracer_data.materials.emplace_back(raytracer::lambert{glm::vec3{.1, .2, .5}});
-    raytracer_data.materials.emplace_back(raytracer::metal{glm::vec3{.8, .6, .2}, 0});
-    raytracer_data.materials.emplace_back(raytracer::dielectric{glm::vec3{1}, 1.5f});
-    raytracer_data.materials.emplace_back(raytracer::lambert{glm::vec3{.64, .8, .0}});
+    raytracer_data.materials.emplace_back(material::lambert{glm::vec3{.1, .2, .5}});
+    raytracer_data.materials.emplace_back(material::metal{glm::vec3{.8, .6, .2}, 0});
+    raytracer_data.materials.emplace_back(material::dielectric{glm::vec3{1}, 1.5f});
+    raytracer_data.materials.emplace_back(material::lambert{glm::vec3{.64, .8, .0}});
 
     raytracer_data.spheres.emplace_back(glm::vec3{0, 1, 0}, 1.f, 0);
     raytracer_data.spheres.emplace_back(glm::vec3{0, -1000.125f, 0}, 1000.f, 3);
@@ -436,7 +195,7 @@ int main()
 
     std::vector<glm::vec3> multisampling_texels(app_data.sampling_number, glm::vec3{0});
 
-    std::vector<glm::vec<3, std::uint8_t>> data(static_cast<std::size_t>(app_data.width) * app_data.height);
+    std::vector<glm::vec<3, std::uint8_t>> texels_data(static_cast<std::size_t>(app_data.width) * app_data.height);
 
     auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
 
@@ -460,24 +219,14 @@ int main()
 
             color = app::gamma_correction(color);
 
-            auto &&rgb = data[x + static_cast<std::size_t>(app_data.width) * y];
+            auto &&rgb = texels_data[x + static_cast<std::size_t>(app_data.width) * y];
 
-            rgb.r = static_cast<std::uint8_t>(255.f * color.x);
-            rgb.g = static_cast<std::uint8_t>(255.f * color.y);
-            rgb.b = static_cast<std::uint8_t>(255.f * color.z);
+            rgb = app::normalize_rgb_to_8bit(std::move(color));
         }
     }
+
     std::cout << "reduce aproach took "s << total / (static_cast<double>(app_data.width) * app_data.height) << " ms\n"s;
 
-    fs::path path{"image.ppm"sv};
-
-    std::ofstream file{path, std::ios::out | std::ios::trunc | std::ios::binary};
-
-    if (file.bad() || file.fail())
-        return 1;
-
-    file << "P6\n"s << app_data.width << " "s << app_data.height << "\n255\n"s;
-
-    file.write(reinterpret_cast<char const *>(std::data(data)), std::size(data) * sizeof(decltype(data)::value_type));
+    app::save_to_file("image.ppm"sv, app_data, texels_data);
 }
 
