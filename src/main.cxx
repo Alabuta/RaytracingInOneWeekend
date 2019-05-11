@@ -1,6 +1,6 @@
 #include "main.hxx"
 
-extern void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<RGB<std::uint8_t>> &image_texels);
+extern void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8vec3> &image_texels);
 
 namespace app {
 struct data final {
@@ -59,7 +59,7 @@ glm::vec3 color(raytracer::data &raytracer_data, T &&ray)
 }
 
 template<class T>
-RGB<std::uint8_t> normalize_rgb_to_8bit(T &&color)
+math::u8vec3 normalize_rgb_to_8bit(T &&color)
 {
     return {
         static_cast<std::uint8_t>(255.f * color.x),
@@ -68,7 +68,7 @@ RGB<std::uint8_t> normalize_rgb_to_8bit(T &&color)
     };
 }
 
-void save_to_file(std::string_view name, app::data const &app_data, std::vector<RGB<std::uint8_t>> const &texels_data)
+void save_to_file(std::string_view name, app::data const &app_data, std::vector<math::u8vec3> const &texels_data)
 {
     fs::path path{name};
 
@@ -93,7 +93,7 @@ int main()
 
     raytracer::data raytracer_data;
 
-    std::vector<RGB<std::uint8_t>> output(static_cast<std::size_t>(app_data.width) * app_data.height);
+    std::vector<math::u8vec3> output(static_cast<std::size_t>(app_data.width) * app_data.height);
 
     cuda_impl(app_data.width, app_data.height, output);
 
@@ -168,7 +168,7 @@ int main()
 
     std::vector<glm::vec3> multisampling_texels(app_data.sampling_number, glm::vec3{0});
 
-    std::vector<RGB<std::uint8_t>> texels_data(static_cast<std::size_t>(app_data.width) * app_data.height);
+    std::vector<math::u8vec3> texels_data(static_cast<std::size_t>(app_data.width) * app_data.height);
 
     auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
 

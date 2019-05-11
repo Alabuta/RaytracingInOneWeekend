@@ -5,25 +5,32 @@
 //#include <glm/glm.hpp>
 
 
-template<class T>
-struct RGB final {
-    T r, g, b;
-};
+#ifdef CUDA_VERSION
+    #define CUDA_HOST __host__
+    #define CUDA_DEVICE __device__
+#else
+    #define CUDA_HOST
+    #define CUDA_DEVICE
+#endif
 
 
 namespace math {
-template<class T>
-struct _vec3 final {
-    using type = T;
+    template<std::size_t N, class T>
+    struct vec final {
+        using value_type = T;
+        static auto constexpr size{N};
+    };
 
-    T x, y, z;
+    template<class T>
+    struct vec<3, T> final {
+        T x, y, z;
 
-    _vec3() = default;
+        vec() = default;
 
-    constexpr _vec3(T x, T y, T z) noexcept : x{x}, y{y}, z{z} { }
-    constexpr _vec3(T value) noexcept : x{value}, y{value}, z{value} { }
-};
+        CUDA_HOST CUDA_DEVICE constexpr vec(T x, T y, T z) noexcept : x{x}, y{y}, z{z} { }
+        CUDA_HOST CUDA_DEVICE constexpr vec(T value) noexcept : x{value}, y{value}, z{value} { }
+    };
 
-using vec3 = _vec3<float>;
-using u8vec3 = _vec3<std::uint8_t>;
+    using vec3 = vec<3, float>;
+    using u8vec3 = vec<3, std::uint8_t>;
 }

@@ -2,7 +2,7 @@
 
 struct rgb32_to_rgb8 final {
     __host__ __device__
-    RGB<std::uint8_t> operator() (math::vec3 const &color) const noexcept
+    math::u8vec3 operator() (math::vec3 const &color) const noexcept
     {
         return {
             static_cast<std::uint8_t>(color.x * 255.f),
@@ -32,7 +32,7 @@ void render(thrust::device_ptr<math::vec3> framebuffer_ptr, std::uint32_t width,
     };
 }
 
-void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<RGB<std::uint8_t>> &image_texels)
+void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8vec3> &image_texels)
 {
     thrust::device_vector<math::vec3> framebuffer(static_cast<std::size_t>(width) * height);
 
