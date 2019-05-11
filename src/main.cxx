@@ -1,13 +1,14 @@
 #include "main.hxx"
 
+extern void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<RGB<std::uint8_t>> &image_texels);
 
 namespace app {
 struct data final {
     static auto constexpr sampling_number{16u};
 
 #ifdef _DEBUG
-    std::uint32_t width{256u};
-    std::uint32_t height{128u};
+    std::uint32_t width{512u};
+    std::uint32_t height{256u};
 #else
     std::uint32_t width{1920u};
     std::uint32_t height{1080u};
@@ -58,7 +59,7 @@ glm::vec3 color(raytracer::data &raytracer_data, T &&ray)
 }
 
 template<class T>
-glm::vec<3, std::uint8_t> normalize_rgb_to_8bit(T &&color)
+RGB<std::uint8_t> normalize_rgb_to_8bit(T &&color)
 {
     return {
         static_cast<std::uint8_t>(255.f * color.x),
@@ -67,7 +68,7 @@ glm::vec<3, std::uint8_t> normalize_rgb_to_8bit(T &&color)
     };
 }
 
-void save_to_file(std::string_view name, app::data const &app_data, std::vector<glm::vec<3, std::uint8_t>> const &texels_data)
+void save_to_file(std::string_view name, app::data const &app_data, std::vector<RGB<std::uint8_t>> const &texels_data)
 {
     fs::path path{name};
 
@@ -88,7 +89,17 @@ int main()
 {
     std::cout << "started... \n"s;
 
+    app::data app_data;
+
     raytracer::data raytracer_data;
+
+    std::vector<RGB<std::uint8_t>> output(static_cast<std::size_t>(app_data.width) * app_data.height);
+
+    cuda_impl(app_data.width, app_data.height, output);
+
+    app::save_to_file("image_cuda.ppm"sv, app_data, output);
+
+    return 0;
 
     raytracer_data.materials.emplace_back(material::lambert{glm::vec3{.1, .2, .5}});
     raytracer_data.materials.emplace_back(material::metal{glm::vec3{.8, .6, .2}, 0});
@@ -149,8 +160,6 @@ int main()
     }
 #endif
 
-    app::data app_data;
-
     raytracer::camera camera{
         glm::vec3{-4, 3.2, 5}, glm::vec3{0, 1, 0}, glm::vec3{0, 1, 0},
         static_cast<float>(app_data.width) / static_cast<float>(app_data.height), 42.f,
@@ -159,7 +168,7 @@ int main()
 
     std::vector<glm::vec3> multisampling_texels(app_data.sampling_number, glm::vec3{0});
 
-    std::vector<glm::vec<3, std::uint8_t>> texels_data(static_cast<std::size_t>(app_data.width) * app_data.height);
+    std::vector<RGB<std::uint8_t>> texels_data(static_cast<std::size_t>(app_data.width) * app_data.height);
 
     auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
 

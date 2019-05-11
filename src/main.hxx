@@ -34,3 +34,5 @@ namespace fs = std::filesystem;
 
 #include "raytracer.hxx"
 #include "camera.hxx"
+
+#include "math.hxx"

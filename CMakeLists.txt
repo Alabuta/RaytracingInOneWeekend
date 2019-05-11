@@ -27,9 +27,33 @@ if(USE_CUDA_IMPL)
 	set(PROJECT_NAME_CUDA_IMPL cuda_impl)
 	set(EXTRA_LIBS ${EXTRA_LIBS} ${PROJECT_NAME_CUDA_IMPL})
 
-	add_library(${PROJECT_NAME_CUDA_IMPL} STATIC src/CUDA/lib.cu)
+	set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-extended-lambda")
 
 	include_directories(SYSTEM "$ENV{CUDA_PATH}/include")
+
+	set(CUDA_SOURCE_FILES
+		src/CUDA/main.hxx	src/CUDA/main.cu
+	)
+
+	add_library(${PROJECT_NAME_CUDA_IMPL} STATIC ${CUDA_SOURCE_FILES})
+
+	set_target_properties(${PROJECT_NAME_CUDA_IMPL} PROPERTIES
+		VERSION ${PROJECT_VERSION}
+
+		CXX_STANDARD 20
+		CXX_STANDARD_REQUIRED NO
+		CXX_EXTENSIONS OFF
+
+		POSITION_INDEPENDENT_CODE ON
+
+		CUDA_STANDARD 17
+		CUDA_STANDARD_REQUIRED ON
+		CUDA_SEPARABLE_COMPILATION ON
+	)
+
+	#target_link_libraries(${PROJECT_NAME_CUDA_IMPL} PRIVATE
+	#	glm
+	#)
 endif()
 
 find_package(glm REQUIRED)
