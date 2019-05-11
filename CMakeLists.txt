@@ -27,7 +27,7 @@ if(USE_CUDA_IMPL)
 	set(PROJECT_NAME_CUDA_IMPL cuda_impl)
 	set(EXTRA_LIBS ${EXTRA_LIBS} ${PROJECT_NAME_CUDA_IMPL})
 
-	add_library(${PROJECT_NAME_CUDA_IMPL} STATIC src/lib.cu)
+	add_library(${PROJECT_NAME_CUDA_IMPL} STATIC src/CUDA/lib.cu)
 
 	include_directories(SYSTEM "$ENV{CUDA_PATH}/include")
 endif()

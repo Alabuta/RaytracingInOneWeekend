@@ -33,3 +33,4 @@ namespace fs = std::filesystem;
 #include <glm/gtc/type_ptr.hpp>
 
 #include "raytracer.hxx"
+#include "camera.hxx"

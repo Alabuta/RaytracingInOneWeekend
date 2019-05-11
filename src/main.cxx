@@ -1,8 +1,5 @@
 #include "main.hxx"
 
-double total = 0.;
-
-
 
 namespace app {
 struct data final {
@@ -36,39 +33,6 @@ glm::vec3 background_color(float t)
 }
 
 template<class T>
-std::optional<raytracer::hit> hit_world(std::vector<raytracer::sphere> const &spheres, T &&ray)
-{
-    auto constexpr kMAX = std::numeric_limits<float>::max();
-    auto constexpr kMIN = .008f;
-
-    std::vector<std::optional<raytracer::hit>> hits(std::size(spheres));
-
-    std::transform(std::execution::seq, std::cbegin(spheres), std::cend(spheres), std::begin(hits), [&ray, kMIN, kMAX] (auto && sphere)
-    {
-        return raytracer::intersect(ray, sphere, kMIN, kMAX);
-    });
-
-    //auto const start = std::chrono::high_resolution_clock::now();
-
-    auto it_end = std::stable_partition(std::execution::par, std::begin(hits), std::end(hits), [] (auto &&hit)
-    {
-        return hit.has_value();
-    });
-
-    /*auto const end = std::chrono::high_resolution_clock::now();
-
-    std::chrono::duration<double, std::milli> ms = end - start;
-    total += ms.count();*/
-
-    auto it_hit = std::min_element(std::execution::par_unseq, std::begin(hits), it_end, [] (auto &&lhs, auto &&rhs)
-    {
-        return lhs->time < rhs->time;
-    });
-
-    return it_hit != it_end ? *it_hit : std::optional<raytracer::hit>{ };
-}
-
-template<class T>
 glm::vec3 color(raytracer::data &raytracer_data, T &&ray)
 {
     glm::vec3 attenuation{1};
@@ -77,7 +41,7 @@ glm::vec3 color(raytracer::data &raytracer_data, T &&ray)
     glm::vec3 energy_absorption{0};
 
     for (auto bounce = 0u; bounce < raytracer_data.bounces_number; ++bounce) {
-        if (auto hit = hit_world(raytracer_data.spheres, scattered_ray); hit) {
+        if (auto hit = raytracer::hit_world(raytracer_data.spheres, scattered_ray); hit) {
             if (auto scattered = raytracer::apply_material(raytracer_data, scattered_ray, hit.value()); scattered) {
                 std::tie(scattered_ray, energy_absorption) = *scattered;
 
@@ -224,8 +188,6 @@ int main()
             rgb = app::normalize_rgb_to_8bit(std::move(color));
         }
     }
-
-    std::cout << "reduce aproach took "s << total / (static_cast<double>(app_data.width) * app_data.height) << " ms\n"s;
 
     app::save_to_file("image.ppm"sv, app_data, texels_data);
 }
