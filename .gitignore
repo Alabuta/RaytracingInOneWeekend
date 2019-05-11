@@ -9,7 +9,7 @@
 *.iobj
 *.tmp
 *.user
-
+*.ppm
 
 .vs/
 build/
