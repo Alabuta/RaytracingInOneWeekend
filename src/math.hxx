@@ -1,33 +1,6 @@
 #pragma once
 
-#ifdef CUDA_VERSION
-    #define GLM_FORCE_CUDA
-#endif
-
-
-//#define GLM_FORCE_CXX17
-//#define GLM_ENABLE_EXPERIMENTAL
-//#define GLM_FORCE_RADIANS
-//#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-//#define GLM_GTX_intersect
-//
-//#include <glm/glm.hpp>
-//#include <glm/gtx/intersect.hpp>
-//#include <glm/gtx/matrix_decompose.hpp>
-//#include <glm/gtc/matrix_transform.hpp>
-//#include <glm/gtc/matrix_inverse.hpp>
-//#include <glm/gtc/type_ptr.hpp>
-
-
-#ifdef CUDA_VERSION
-    #define CUDA_HOST __host__
-    #define CUDA_DEVICE __device__
-    #define CUDA_HOST_DEVICE __host__ __device__
-#else
-    #define CUDA_HOST
-    #define CUDA_DEVICE
-    #define CUDA_HOST_DEVICE
-#endif
+#include "main.hxx"
 
 
 namespace math {

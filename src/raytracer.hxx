@@ -10,6 +10,7 @@
 #include <cmath>
 #include <variant>
 
+#include "main.hxx"
 #include "math.hxx"
 #include "primitives.hxx"
 #include "material.hxx"

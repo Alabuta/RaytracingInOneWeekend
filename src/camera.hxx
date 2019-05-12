@@ -5,6 +5,7 @@
 #include <numeric>
 #include <cmath>
 
+#include "main.hxx"
 #include "math.hxx"
 #include "raytracer.hxx"
 

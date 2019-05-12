@@ -34,7 +34,7 @@ if(USE_CUDA_IMPL)
 	include_directories(SYSTEM "$ENV{CUDA_PATH}/include")
 
 	set(CUDA_SOURCE_FILES
-		src/CUDA/main.hxx	src/CUDA/main.cu
+		src/CUDA/cuda_impl.hxx	src/CUDA/cuda_impl.cu
 	)
 
 	add_library(${PROJECT_NAME_CUDA_IMPL} STATIC ${CUDA_SOURCE_FILES})

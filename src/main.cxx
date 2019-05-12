@@ -1,6 +1,22 @@
+#include <optional>
+#include <execution>
+#include <variant>
+
+#include <string_view>
+using namespace std::string_view_literals;
+
+#include <fstream>
+#include <filesystem>
+namespace fs = std::filesystem;
+
 #include "main.hxx"
+#include "math.hxx"
+#include "raytracer.hxx"
+#include "camera.hxx"
+
 
 extern void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8vec3> &image_texels);
+
 
 namespace app {
 struct data final {
@@ -21,7 +37,7 @@ struct data final {
 };
 
 template<class T>
-math::vec3 constexpr gamma_correction(T &&color)
+math::vec3 gamma_correction(T &&color)
 {
     auto constexpr gamma = math::vec3{1.f / 2.2f};
 

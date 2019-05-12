@@ -1,4 +1,9 @@
-#include "main.hxx"
+#include <sstream>
+
+#define CUDA_IMPL
+#include "../main.hxx"
+
+#include "math.hxx"
 
 
 namespace cuda {
@@ -13,6 +18,21 @@ struct rgb32_to_rgb8 final {
         };
     }
 };
+
+void check_errors(cudaError_t error_code, std::string const &file_name, std::int32_t file_line)
+{
+    if (error_code == cudaError::cudaSuccess)
+        return;
+
+    std::ostringstream error_stream;
+
+    error_stream << "CUDA error "s << std::string{cudaGetErrorString(error_code)} << " at "s;
+    error_stream << file_name << "("s << file_line << ")"s << std::endl;
+
+    cudaDeviceReset();
+
+    throw std::runtime_error(error_stream.str());
+}
 
 __device__ math::vec3 background_color(float t)
 {
