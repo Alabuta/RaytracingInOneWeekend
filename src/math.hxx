@@ -59,24 +59,24 @@ namespace math {
 
         T x, y, z;
 
-        vec() = default;
+        vec() noexcept = default;
         ~vec() = default;
 
-        CUDA_HOST_DEVICE vec(type const &vector)
+        CUDA_HOST_DEVICE constexpr vec(type const &vector) noexcept
         {
             this->x = vector.x;
             this->y = vector.y;
             this->z = vector.z;
         }
 
-        CUDA_HOST_DEVICE vec(type &&vector)
+        CUDA_HOST_DEVICE constexpr vec(type &&vector) noexcept
         {
             this->x = vector.x;
             this->y = vector.y;
             this->z = vector.z;
         }
 
-        CUDA_HOST_DEVICE type &operator= (type const &vector)
+        CUDA_HOST_DEVICE constexpr type &operator= (type const &vector) noexcept
         {
             this->x = vector.x;
             this->y = vector.y;
@@ -85,7 +85,7 @@ namespace math {
             return *this;
         }
 
-        CUDA_HOST_DEVICE type &operator= (type &&vector)
+        CUDA_HOST_DEVICE constexpr type &operator= (type &&vector) noexcept
         {
             this->x = vector.x;
             this->y = vector.y;
@@ -98,30 +98,30 @@ namespace math {
         CUDA_HOST_DEVICE constexpr vec(X x, Y y, Z z) noexcept
             : x{static_cast<T>(x)}, y{static_cast<T>(y)}, z{static_cast<T>(z)} { }
         
-        template<class V, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<V>>>* = 0>
-        CUDA_HOST_DEVICE constexpr vec(V value) noexcept
+        template<class S, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<S>>>* = 0>
+        CUDA_HOST_DEVICE constexpr vec(S value) noexcept
             : x{static_cast<T>(value)}, y{static_cast<T>(value)}, z{static_cast<T>(value)} { }
 
-        template<class T, typename std::enable_if_t<std::is_same_v<std::decay_t<T>, type>>* = 0>
-        CUDA_HOST_DEVICE type operator+ (T &&rhs) const
+        template<class V, typename std::enable_if_t<std::is_same_v<std::decay_t<V>, type>>* = 0>
+        CUDA_HOST_DEVICE type operator+ (V &&rhs) const
         {
             return {x + rhs.x, y + rhs.y, z + rhs.z};
         }
 
-        template<class T, typename std::enable_if_t<std::is_same_v<std::decay_t<T>, type>>* = 0>
-        CUDA_HOST_DEVICE type operator- (T &&rhs) const
+        template<class V, typename std::enable_if_t<std::is_same_v<std::decay_t<V>, type>>* = 0>
+        CUDA_HOST_DEVICE type operator- (V &&rhs) const
         {
             return {x - rhs.x, y - rhs.y, z - rhs.z};
         }
 
-        template<class T, typename std::enable_if_t<std::is_same_v<std::decay_t<T>, type>>* = 0>
-        CUDA_HOST_DEVICE type operator* (T &&rhs) const
+        template<class V, typename std::enable_if_t<std::is_same_v<std::decay_t<V>, type>>* = 0>
+        CUDA_HOST_DEVICE type operator* (V &&rhs) const
         {
             return {x * rhs.x, y * rhs.y, z * rhs.z};
         }
 
-        template<class T, typename std::enable_if_t<std::is_same_v<std::decay_t<T>, type>>* = 0>
-        CUDA_HOST_DEVICE type operator/ (T &&rhs) const
+        template<class V, typename std::enable_if_t<std::is_same_v<std::decay_t<V>, type>>* = 0>
+        CUDA_HOST_DEVICE type operator/ (V &&rhs) const
         {
             return {x / rhs.x, y / rhs.y, z / rhs.z};
         }
@@ -129,32 +129,32 @@ namespace math {
         CUDA_HOST_DEVICE type &operator+ () noexcept { return *this; };
         CUDA_HOST_DEVICE type operator- () const noexcept { return {-x, -y, -z}; };
 
-        template<class V, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<V>>>* = 0>
-        CUDA_HOST_DEVICE type operator+ (V scalar) const
+        template<class S, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<S>>>* = 0>
+        CUDA_HOST_DEVICE type operator+ (S scalar) const
         {
             return {x + scalar, y + scalar, z + scalar};
         }
         
-        template<class V, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<V>>>* = 0>
-        CUDA_HOST_DEVICE type operator- (V scalar) const
+        template<class S, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<S>>>* = 0>
+        CUDA_HOST_DEVICE type operator- (S scalar) const
         {
             return {x - scalar, y - scalar, z + scalar};
         }
 
-        template<class V, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<V>>>* = 0>
-        CUDA_HOST_DEVICE type operator* (V scalar) const
+        template<class S, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<S>>>* = 0>
+        CUDA_HOST_DEVICE type operator* (S scalar) const
         {
             return {x * scalar, y * scalar, z * scalar};
         }
 
-        template<class V, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<V>>>* = 0>
-        CUDA_HOST_DEVICE type operator/ (V scalar) const
+        template<class S, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<S>>>* = 0>
+        CUDA_HOST_DEVICE type operator/ (S scalar) const
         {
             return {x / scalar, y / scalar, z / scalar};
         }
 
-        template<class T, typename std::enable_if_t<std::is_same_v<std::decay_t<T>, type>>* = 0>
-        CUDA_HOST_DEVICE type &operator+= (T &&rhs)
+        template<class V, typename std::enable_if_t<std::is_same_v<std::decay_t<V>, type>>* = 0>
+        CUDA_HOST_DEVICE type &operator+= (V &&rhs)
         {
             this->x += rhs.x;
             this->y += rhs.y;
@@ -163,8 +163,8 @@ namespace math {
             return *this;
         }
 
-        template<class T, typename std::enable_if_t<std::is_same_v<std::decay_t<T>, type>>* = 0>
-        CUDA_HOST_DEVICE type &operator-= (T &&rhs)
+        template<class V, typename std::enable_if_t<std::is_same_v<std::decay_t<V>, type>>* = 0>
+        CUDA_HOST_DEVICE type &operator-= (V &&rhs)
         {
             this->x -= rhs.x;
             this->y -= rhs.y;
@@ -173,8 +173,8 @@ namespace math {
             return *this;
         }
 
-        template<class T, typename std::enable_if_t<std::is_same_v<std::decay_t<T>, type>>* = 0>
-        CUDA_HOST_DEVICE type &operator*= (T &&rhs)
+        template<class V, typename std::enable_if_t<std::is_same_v<std::decay_t<V>, type>>* = 0>
+        CUDA_HOST_DEVICE type &operator*= (V &&rhs)
         {
             this->x *= rhs.x;
             this->y *= rhs.y;
@@ -183,8 +183,8 @@ namespace math {
             return *this;
         }
 
-        template<class T, typename std::enable_if_t<std::is_same_v<std::decay_t<T>, type>>* = 0>
-        CUDA_HOST_DEVICE type &operator/= (T &&rhs)
+        template<class V, typename std::enable_if_t<std::is_same_v<std::decay_t<V>, type>>* = 0>
+        CUDA_HOST_DEVICE type &operator/= (V &&rhs)
         {
             this->x /= rhs.x;
             this->y /= rhs.y;
@@ -193,8 +193,8 @@ namespace math {
             return *this;
         }
 
-        template<class V, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<V>>>* = 0>
-        CUDA_HOST_DEVICE type & operator+= (V scalar)
+        template<class S, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<S>>>* = 0>
+        CUDA_HOST_DEVICE type &operator+= (S scalar)
         {
             this->x += scalar;
             this->y += scalar;
@@ -203,8 +203,8 @@ namespace math {
             return *this;
         }
 
-        template<class V, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<V>>>* = 0>
-        CUDA_HOST_DEVICE type & operator-= (V scalar)
+        template<class S, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<S>>>* = 0>
+        CUDA_HOST_DEVICE type &operator-= (S scalar)
         {
             this->x -= scalar;
             this->y -= scalar;
@@ -213,8 +213,8 @@ namespace math {
             return *this;
         }
 
-        template<class V, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<V>>>* = 0>
-        CUDA_HOST_DEVICE type &operator*= (V scalar)
+        template<class S, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<S>>>* = 0>
+        CUDA_HOST_DEVICE type &operator*= (S scalar)
         {
             this->x *= scalar;
             this->y *= scalar;
@@ -223,8 +223,8 @@ namespace math {
             return *this;
         }
 
-        template<class V, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<V>>>* = 0>
-        CUDA_HOST_DEVICE type &operator/= (V scalar)
+        template<class S, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<S>>>* = 0>
+        CUDA_HOST_DEVICE type &operator/= (S scalar)
         {
             this->x /= scalar;
             this->y /= scalar;
@@ -253,14 +253,14 @@ namespace math {
             return *this;
         }
 
-        template<class T, typename std::enable_if_t<std::is_same_v<std::decay_t<T>, type>>* = 0>
-        CUDA_HOST_DEVICE float dot(T &&rhs) const
+        template<class V, typename std::enable_if_t<std::is_same_v<std::decay_t<V>, type>>* = 0>
+        CUDA_HOST_DEVICE float dot(V &&rhs) const
         {
             return x * rhs.x + y * rhs.y + z * rhs.z;
         }
 
-        template<class T, typename std::enable_if_t<std::is_same_v<std::decay_t<T>, type>>* = 0>
-        CUDA_HOST_DEVICE type cross(T &&rhs) const
+        template<class V, typename std::enable_if_t<std::is_same_v<std::decay_t<V>, type>>* = 0>
+        CUDA_HOST_DEVICE type cross(V &&rhs) const
         {
             return {
                 y * rhs.z - z * rhs.y,
@@ -349,16 +349,16 @@ namespace math {
         return copy;
     }
 
-    template<std::size_t D, class T, class A>
-    CUDA_HOST_DEVICE vec<D, T> mix(vec<D, T> const &x, vec<D, T> const &y, A a)
+    template<std::size_t D, class T, class S, typename std::enable_if_t<std::is_arithmetic_v<std::decay_t<S>>>* = 0>
+    CUDA_HOST_DEVICE vec<D, T> mix(vec<D, T> const &x, vec<D, T> const &y, S a)
     {
-        return x * static_cast<T>(static_cast<A>(1) - a) + y * static_cast<T>(a);
+        return x * static_cast<T>(static_cast<S>(1) - a) + y * static_cast<T>(a);
     }
 
     template<std::size_t D, class T>
     CUDA_HOST_DEVICE vec<D, T> mix(vec<D, T> const &x, vec<D, T> const &y, vec<D, T> const &a)
     {
-        return x * static_cast<T>(vec<D, T>{1} -a) + y * a;
+        return x * (vec<D, T>{1} - a) + y * a;
     }
 
     using vec3 = vec<3, float>;

@@ -1,5 +1,7 @@
 #include "main.hxx"
 
+
+namespace cuda {
 struct rgb32_to_rgb8 final {
     __host__ __device__
     math::u8vec3 operator() (math::vec3 const &color) const noexcept
@@ -11,6 +13,18 @@ struct rgb32_to_rgb8 final {
         };
     }
 };
+
+__device__ math::vec3 background_color(float t)
+{
+    return math::mix(math::vec3{1}, math::vec3{.5, .7, 1}, t);
+}
+
+template<class T>
+__device__ math::vec3 color(T &&ray)
+{
+    return cuda::background_color(ray.unit_direction().y * .5f + .5f);
+}
+}
 
 __global__
 void render(thrust::device_ptr<math::vec3> framebuffer_ptr, std::uint32_t width, std::uint32_t height)
@@ -25,12 +39,21 @@ void render(thrust::device_ptr<math::vec3> framebuffer_ptr, std::uint32_t width,
 
     auto framebuffer_raw_ptr = thrust::raw_pointer_cast(framebuffer_ptr);
 
-    framebuffer_raw_ptr[pixel_index] = math::vec3{
-        static_cast<float>(x) / width,
-        1.f - static_cast<float>(y) / height,
-        .2f
-    };
+    auto u = static_cast<float>(x) / width;
+    auto v = 1.f - static_cast<float>(y) / height;
+
+    math::vec3 origin{0};
+
+    math::vec3 lower_left_corner{-2, -1, -1};
+
+    math::vec3 horizontal{4, 0, 0};
+    math::vec3 vertical{0, 2, 0};
+
+    math::ray ray{origin, lower_left_corner + horizontal * u + vertical * v};
+
+    framebuffer_raw_ptr[pixel_index] = cuda::color(ray);
 }
+
 
 void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8vec3> &image_texels)
 {
@@ -45,8 +68,8 @@ void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8ve
 
     cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
 
-    auto begin = thrust::make_transform_iterator(framebuffer.begin(), rgb32_to_rgb8{});
-    auto end = thrust::make_transform_iterator(framebuffer.end(), rgb32_to_rgb8{});
+    auto begin = thrust::make_transform_iterator(framebuffer.begin(), cuda::rgb32_to_rgb8{});
+    auto end = thrust::make_transform_iterator(framebuffer.end(), cuda::rgb32_to_rgb8{});
 
     thrust::copy(begin, end, image_texels.begin());
 }
