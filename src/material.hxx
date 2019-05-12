@@ -2,12 +2,11 @@
 
 #include <variant>
 
-#define GLM_FORCE_CXX17
-#include <glm/glm.hpp>
+#include "math.hxx"
 
 namespace material {
 struct lambert final {
-    glm::vec3 albedo{1};
+    math::vec3 albedo{1};
 
     lambert() = default;
 
@@ -16,7 +15,7 @@ struct lambert final {
 };
 
 struct metal final {
-    glm::vec3 albedo{1};
+    math::vec3 albedo{1};
     float roughness{0};
 
     metal() = default;
@@ -26,7 +25,7 @@ struct metal final {
 };
 
 struct dielectric final {
-    glm::vec3 albedo{1};
+    math::vec3 albedo{1};
     float refraction_index{1};
 
     dielectric() = default;

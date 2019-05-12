@@ -16,6 +16,8 @@ configure_file(
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${PROJECT_SOURCE_DIR}/bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${PROJECT_SOURCE_DIR}/bin")
 
+find_package(glm REQUIRED)
+
 include_directories(SYSTEM include)
 include_directories(src)
 
@@ -50,13 +52,7 @@ if(USE_CUDA_IMPL)
 		CUDA_STANDARD_REQUIRED ON
 		CUDA_SEPARABLE_COMPILATION ON
 	)
-
-	#target_link_libraries(${PROJECT_NAME_CUDA_IMPL} PRIVATE
-	#	glm
-	#)
 endif()
-
-find_package(glm REQUIRED)
 
 set(SOURCE_FILES
     src/main.hxx	src/main.cxx

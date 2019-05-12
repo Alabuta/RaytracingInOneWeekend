@@ -10,19 +10,7 @@
 #include <cmath>
 #include <variant>
 
-#define GLM_FORCE_CXX17
-#define GLM_ENABLE_EXPERIMENTAL
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define GLM_GTX_intersect
-
-#include <glm/glm.hpp>
-#include <glm/gtx/intersect.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/matrix_inverse.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
+#include "math.hxx"
 #include "primitives.hxx"
 #include "material.hxx"
 
@@ -40,15 +28,15 @@ struct data final {
     data() : generator{random_device()} { }
 };
 
-glm::vec3 random_in_unit_sphere(std::mt19937 &generator)
+math::vec3 random_in_unit_sphere(std::mt19937 &generator)
 {
     static auto random_distribution = std::uniform_real_distribution{-1.f, +1.f};
 
-    glm::vec3 vector;
+    math::vec3 vector;
 
     do {
-        vector = glm::vec3{random_distribution(generator), random_distribution(generator), random_distribution(generator)};
-    } while (glm::length(vector) > 1.f);
+        vector = math::vec3{random_distribution(generator), random_distribution(generator), random_distribution(generator)};
+    } while (math::length(vector) > 1.f);
 
     return vector;
 }
@@ -65,9 +53,9 @@ std::optional<primitives::hit> intersect(T1 &&ray, T2 &&sphere, float time_min, 
 {
     auto oc = ray.origin - sphere.center;
 
-    auto a = glm::dot(ray.direction, ray.direction);
-    auto b = glm::dot(oc, ray.direction);
-    auto c = glm::dot(oc, oc) - sphere.radius * sphere.radius;
+    auto a = math::dot(ray.direction, ray.direction);
+    auto b = math::dot(oc, ray.direction);
+    auto c = math::dot(oc, oc) - sphere.radius * sphere.radius;
 
     auto discriminant = b * b - a * c;
 
@@ -129,14 +117,14 @@ std::optional<primitives::hit> hit_world(std::vector<primitives::sphere> const &
 }
 
 template<class T1, class T2>
-std::optional<std::pair<primitives::ray, glm::vec3>> apply_material(raytracer::data &raytracer_data, T1 &&ray, T2 &&hit)
+std::optional<std::pair<math::ray, math::vec3>> apply_material(raytracer::data &raytracer_data, T1 &&ray, T2 &&hit)
 {
     auto &&[position, normal, time, material_index] = hit;
 
     auto &&generator = raytracer_data.generator;
     auto const &materials = raytracer_data.materials;
 
-    return std::visit([&] (auto &&material) -> std::optional<std::pair<primitives::ray, glm::vec3>>
+    return std::visit([&] (auto &&material) -> std::optional<std::pair<math::ray, math::vec3>>
     {
         using type = std::decay_t<decltype(material)>;
 
@@ -145,7 +133,7 @@ std::optional<std::pair<primitives::ray, glm::vec3>> apply_material(raytracer::d
             auto random_direction = raytracer::random_in_unit_sphere(generator);
             auto target = position + normal + random_direction;
 
-            auto scattered_ray = primitives::ray{position, target - position};
+            auto scattered_ray = math::ray{position, target - position};
             auto attenuation = material.albedo;
 
             return std::pair{scattered_ray, attenuation};
@@ -153,14 +141,14 @@ std::optional<std::pair<primitives::ray, glm::vec3>> apply_material(raytracer::d
 
         else if constexpr (std::is_same_v<type, material::metal>)
         {
-            auto reflected = glm::reflect(ray.unit_direction(), normal);
+            auto reflected = math::reflect(ray.unit_direction(), normal);
 
             auto random_direction = raytracer::random_in_unit_sphere(generator);
 
-            auto scattered_ray = primitives::ray{position, reflected + random_direction * material.roughness};
+            auto scattered_ray = math::ray{position, reflected + random_direction * material.roughness};
             auto attenuation = material.albedo;
 
-            if (glm::dot(scattered_ray.direction, normal) > 0.f)
+            if (math::dot(scattered_ray.direction, normal) > 0.f)
                 return std::pair{scattered_ray, attenuation};
 
             return { };
@@ -170,7 +158,7 @@ std::optional<std::pair<primitives::ray, glm::vec3>> apply_material(raytracer::d
         {
             auto outward_normal = -normal;
             auto refraction_index = material.refraction_index;;
-            auto cosine_theta = glm::dot(ray.unit_direction(), normal);
+            auto cosine_theta = math::dot(ray.unit_direction(), normal);
 
             if (cosine_theta <= 0.f) {
                 outward_normal *= -1.f;
@@ -180,26 +168,26 @@ std::optional<std::pair<primitives::ray, glm::vec3>> apply_material(raytracer::d
 
             //else cosine_theta *= refraction_index;
 
-            //cosine_theta /= glm::length(ray.direction);
+            //cosine_theta /= math::length(ray.direction);
 
             auto attenuation = material.albedo;
-            auto refracted = glm::refract(ray.unit_direction(), outward_normal, refraction_index);
+            auto refracted = math::refract(ray.unit_direction(), outward_normal, refraction_index);
 
             auto reflection_probability = 1.f;
 
-            if (glm::length(refracted) > 0.f)
+            if (math::length(refracted) > 0.f)
                 reflection_probability = raytracer::schlick_reflection_probability(refraction_index, cosine_theta);
 
             static auto random_distribution = std::uniform_real_distribution{0.f, 1.f};
 
-            primitives::ray scattered_ray;
+            math::ray scattered_ray;
 
             if (random_distribution(generator) < reflection_probability) {
-                auto reflected = glm::reflect(ray.unit_direction(), normal);
-                scattered_ray = primitives::ray{position, reflected};
+                auto reflected = math::reflect(ray.unit_direction(), normal);
+                scattered_ray = math::ray{position, reflected};
             }
 
-            else scattered_ray = primitives::ray{position, refracted};
+            else scattered_ray = math::ray{position, refracted};
 
             return std::pair{scattered_ray, attenuation};
         }

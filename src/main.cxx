@@ -21,25 +21,25 @@ struct data final {
 };
 
 template<class T>
-glm::vec3 constexpr gamma_correction(T &&color)
+math::vec3 constexpr gamma_correction(T &&color)
 {
-    auto constexpr gamma = glm::vec3{1.f / 2.2f};
+    auto constexpr gamma = math::vec3{1.f / 2.2f};
 
-    return glm::pow(std::forward<T>(color), gamma);
+    return math::pow(std::forward<T>(color), gamma);
 }
 
-glm::vec3 background_color(float t)
+math::vec3 background_color(float t)
 {
-    return glm::mix(glm::vec3{1}, glm::vec3{.5, .7, 1}, t);
+    return math::mix(math::vec3{1}, math::vec3{.5, .7, 1}, t);
 }
 
 template<class T>
-glm::vec3 color(raytracer::data &raytracer_data, T &&ray)
+math::vec3 color(raytracer::data &raytracer_data, T &&ray)
 {
-    glm::vec3 attenuation{1};
+    math::vec3 attenuation{1};
 
     auto scattered_ray = std::forward<T>(ray);
-    glm::vec3 energy_absorption{0};
+    math::vec3 energy_absorption{0};
 
     for (auto bounce = 0u; bounce < raytracer_data.bounces_number; ++bounce) {
         if (auto hit = raytracer::hit_world(raytracer_data.spheres, scattered_ray); hit) {
@@ -49,13 +49,13 @@ glm::vec3 color(raytracer::data &raytracer_data, T &&ray)
                 attenuation *= energy_absorption;
             }
 
-            else return glm::vec3{0};
+            else return math::vec3{0};
         }
 
         else return app::background_color(.5f * scattered_ray.unit_direction().y + 1.f) * attenuation;
     }
 
-    return glm::vec3{0};
+    return math::vec3{0};
 }
 
 template<class T>
@@ -101,16 +101,16 @@ int main()
 
     return 0;
 
-    raytracer_data.materials.emplace_back(material::lambert{glm::vec3{.1, .2, .5}});
-    raytracer_data.materials.emplace_back(material::metal{glm::vec3{.8, .6, .2}, 0});
-    raytracer_data.materials.emplace_back(material::dielectric{glm::vec3{1}, 1.5f});
-    raytracer_data.materials.emplace_back(material::lambert{glm::vec3{.64, .8, .0}});
+    raytracer_data.materials.emplace_back(material::lambert{math::vec3{.1, .2, .5}});
+    raytracer_data.materials.emplace_back(material::metal{math::vec3{.8, .6, .2}, 0});
+    raytracer_data.materials.emplace_back(material::dielectric{math::vec3{1}, 1.5f});
+    raytracer_data.materials.emplace_back(material::lambert{math::vec3{.64, .8, .0}});
 
-    raytracer_data.spheres.emplace_back(glm::vec3{0, 1, 0}, 1.f, 0);
-    raytracer_data.spheres.emplace_back(glm::vec3{0, -1000.125f, 0}, 1000.f, 3);
-    raytracer_data.spheres.emplace_back(glm::vec3{+2, 1, 0}, 1.f, 1);
-    raytracer_data.spheres.emplace_back(glm::vec3{-2, 1, 0}, 1.f, 2);
-    raytracer_data.spheres.emplace_back(glm::vec3{-2, 1, 0}, -.99f, 2);
+    raytracer_data.spheres.emplace_back(math::vec3{0, 1, 0}, 1.f, 0);
+    raytracer_data.spheres.emplace_back(math::vec3{0, -1000.125f, 0}, 1000.f, 3);
+    raytracer_data.spheres.emplace_back(math::vec3{+2, 1, 0}, 1.f, 1);
+    raytracer_data.spheres.emplace_back(math::vec3{-2, 1, 0}, 1.f, 2);
+    raytracer_data.spheres.emplace_back(math::vec3{-2, 1, 0}, -.99f, 2);
 
 #if 0
     {
@@ -124,9 +124,9 @@ int main()
             for (auto b = -11; b < 11; ++b) {
                 auto material_type_index = rd_int(generator);
 
-                glm::vec3 center{.9f * rd_real(generator) + a, .2f, .9f * rd_real(generator) + b};
+                math::vec3 center{.9f * rd_real(generator) + a, .2f, .9f * rd_real(generator) + b};
 
-                if (glm::distance(center, glm::vec3{0, 1, 0}) < 1.f)
+                if (math::distance(center, math::vec3{0, 1, 0}) < 1.f)
                     continue;
 
                 raytracer_data.spheres.emplace_back(
@@ -136,19 +136,19 @@ int main()
                 switch (material_type_index) {
                     case 0:
                         raytracer_data.materials.emplace_back(
-                            raytracer::lambert{glm::vec3{rd_real(generator), rd_real(generator), rd_real(generator)}}
+                            raytracer::lambert{math::vec3{rd_real(generator), rd_real(generator), rd_real(generator)}}
                         );
                         break;
 
                     case 1:
                         raytracer_data.materials.emplace_back(
-                            raytracer::metal{glm::vec3{rd_real(generator), rd_real(generator), rd_real(generator)}, .5f * rd_real(generator)}
+                            raytracer::metal{math::vec3{rd_real(generator), rd_real(generator), rd_real(generator)}, .5f * rd_real(generator)}
                         );
                         break;
 
                     case 2:
                         raytracer_data.materials.emplace_back(
-                            raytracer::dielectric{glm::vec3{rd_real(generator), rd_real(generator), rd_real(generator)}, 1.5f}
+                            raytracer::dielectric{math::vec3{rd_real(generator), rd_real(generator), rd_real(generator)}, 1.5f}
                         );
                         break;
 
@@ -161,12 +161,12 @@ int main()
 #endif
 
     raytracer::camera camera{
-        glm::vec3{-4, 3.2, 5}, glm::vec3{0, 1, 0}, glm::vec3{0, 1, 0},
+        math::vec3{-4, 3.2, 5}, math::vec3{0, 1, 0}, math::vec3{0, 1, 0},
         static_cast<float>(app_data.width) / static_cast<float>(app_data.height), 42.f,
-        0.0625f, glm::distance(glm::vec3{-4, 3.2, 5}, glm::vec3{0, 1, 0})
+        0.0625f, math::distance(math::vec3{-4, 3.2, 5}, math::vec3{0, 1, 0})
     };
 
-    std::vector<glm::vec3> multisampling_texels(app_data.sampling_number, glm::vec3{0});
+    std::vector<math::vec3> multisampling_texels(app_data.sampling_number, math::vec3{0});
 
     std::vector<math::u8vec3> texels_data(static_cast<std::size_t>(app_data.width) * app_data.height);
 
@@ -186,7 +186,7 @@ int main()
                 return app::color(raytracer_data, camera.ray(_u, _v));
             });
 
-            auto color = std::reduce(std::execution::seq, std::begin(multisampling_texels), std::end(multisampling_texels), glm::vec3{0});
+            auto color = std::reduce(std::execution::seq, std::begin(multisampling_texels), std::end(multisampling_texels), math::vec3{0});
 
             color /= static_cast<float>(app_data.sampling_number);
 
