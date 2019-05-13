@@ -117,10 +117,10 @@ int main()
 
     return 0;
 
-    raytracer_data.materials.emplace_back(material::lambert{math::vec3{.1, .2, .5}});
-    raytracer_data.materials.emplace_back(material::metal{math::vec3{.8, .6, .2}, 0});
-    raytracer_data.materials.emplace_back(material::dielectric{math::vec3{1}, 1.5f});
-    raytracer_data.materials.emplace_back(material::lambert{math::vec3{.64, .8, .0}});
+    raytracer_data.materials.push_back(material::lambert{math::vec3{.1, .2, .5}});
+    raytracer_data.materials.push_back(material::metal{math::vec3{.8, .6, .2}, 0});
+    raytracer_data.materials.push_back(material::dielectric{math::vec3{1}, 1.5f});
+    raytracer_data.materials.push_back(material::lambert{math::vec3{.64, .8, .0}});
 
     raytracer_data.spheres.emplace_back(math::vec3{0, 1, 0}, 1.f, 0);
     raytracer_data.spheres.emplace_back(math::vec3{0, -1000.125f, 0}, 1000.f, 3);

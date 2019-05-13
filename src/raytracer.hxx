@@ -49,7 +49,7 @@ float schlick_reflection_probability(float refraction_index, float cosine_theta)
     return reflection_coefficient + (1.f - reflection_coefficient) * std::pow(1.f - cosine_theta, 5);
 }
 
-template<class T1, class T2, typename std::enable_if_t<std::is_same_v<primitives::sphere, std::decay_t<T2>>>...>
+template<class T1, class T2, typename std::enable_if_t<std::is_same_v<primitives::sphere, std::decay_t<T2>>>* = 0>
 std::optional<primitives::hit> intersect(T1 &&ray, T2 &&sphere, float time_min, float time_max)
 {
     auto oc = ray.origin - sphere.center;

@@ -220,7 +220,7 @@ namespace math {
         {
             auto length = this->length();
 
-            if (std::abs(length) > /*std::numeric_limits<T>::min()*/static_cast<T>(1.e-6))
+            if (std::abs(length) > /*std::numeric_limits<T>::min()*/static_cast<T>(FLT_MIN))
                 *this /= length;
 
             return *this;
@@ -345,7 +345,8 @@ namespace math {
         ray() = default;
 
         template<class T1, class T2>
-        CUDA_DEVICE ray(T1 &&origin, T2 &&direction) noexcept : origin{std::forward<T1>(origin)}, direction{std::forward<T2>(direction)} { }
+        CUDA_DEVICE ray(T1 &&origin, T2 &&direction) noexcept
+            : origin{std::forward<T1>(origin)}, direction{std::forward<T2>(direction)} { }
 
         CUDA_DEVICE math::vec3 unit_direction() const noexcept { return math::normalize(direction); }
 

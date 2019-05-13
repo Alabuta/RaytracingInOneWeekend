@@ -9,8 +9,10 @@ struct sphere final {
 
     std::size_t material_index;
 
+    sphere() = default;
+
     template<class T>
-    sphere(T &&center, float radius, std::size_t material_index) noexcept
+    CUDA_HOST_DEVICE sphere(T &&center, float radius, std::size_t material_index) noexcept
         : center{std::forward<T>(center)}, radius{radius}, material_index{material_index} { }
 };
 
