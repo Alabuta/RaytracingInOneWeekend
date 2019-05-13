@@ -1,11 +1,17 @@
 #pragma once
 
-#include <variant>
+#ifndef CUDA_IMPL
+    #include <variant>
+#endif
 
 #include "math.hxx"
 
 namespace material {
-struct lambert final {
+struct abstract {
+    virtual ~abstract() = default;
+};
+
+struct lambert final : public material::abstract {
     math::vec3 albedo{1};
 
     lambert() = default;
@@ -14,7 +20,7 @@ struct lambert final {
     lambert(T &&albedo) noexcept : albedo{std::forward<T>(albedo)} { }
 };
 
-struct metal final {
+struct metal final : public material::abstract {
     math::vec3 albedo{1};
     float roughness{0};
 
@@ -24,7 +30,7 @@ struct metal final {
     metal(T &&albedo, float roughness) noexcept : albedo{std::forward<T>(albedo)}, roughness{roughness} { }
 };
 
-struct dielectric final {
+struct dielectric final : public material::abstract {
     math::vec3 albedo{1};
     float refraction_index{1};
 
@@ -34,5 +40,9 @@ struct dielectric final {
     dielectric(T &&albedo, float refraction_index) noexcept : albedo{std::forward<T>(albedo)}, refraction_index{refraction_index} { }
 };
 
-using types = std::variant<lambert, metal, dielectric>;
+#ifdef CUDA_IMPL
+    using types = abstract;
+#else
+    using types = std::variant<lambert, metal, dielectric>;
+#endif
 }

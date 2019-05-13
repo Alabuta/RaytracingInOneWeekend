@@ -23,5 +23,9 @@ struct hit final {
     float time{0.f};
 
     std::size_t material_index;
+    
+    #ifdef CUDA_IMPL
+        bool valid{false}; // For CUDA implementation
+    #endif
 };
 }
