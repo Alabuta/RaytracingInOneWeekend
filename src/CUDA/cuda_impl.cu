@@ -101,9 +101,9 @@ __device__ primitives::hit hit_world(thrust::device_ptr<primitives::sphere> sphe
     auto const kMAX = FLT_MAX;// std::numeric_limits<float>::max();
     auto const kMIN = .008f;
 
-    auto spheres_raw_ptr = spheres_ptr.get();//thrust::raw_pointer_cast(spheres_ptr);
-
     auto min_time = kMAX;
+
+    auto spheres_raw_ptr = thrust::raw_pointer_cast(spheres_ptr);
 
     primitives::hit closest_hit;
 
@@ -150,15 +150,13 @@ __device__ math::vec3 color(thrust::device_ptr<cuda::data> cuda_data, T &&ray)
     return math::vec3{0};
 }
 
-__global__ void populate_world(thrust::device_ptr<cuda::data> data_ptr)
+__global__ void populate_world(thrust::device_ptr<cuda::data> data_ptr, thrust::device_ptr<primitives::sphere> spheres_ptr, std::uint32_t spheres_size)
 {
     if (threadIdx.x == 0 && blockIdx.x == 0) {
         auto data_raw_ptr = thrust::raw_pointer_cast(data_ptr);
 
-        /*data_raw_ptr->spheres_ptr = thrust::device_malloc<primitives::sphere>(2);
-
-        data_raw_ptr->spheres_ptr[0] = primitives::sphere{math::vec3{0, 1, 0}, 1.f, 0};
-        data_raw_ptr->spheres_ptr[1] = primitives::sphere{math::vec3{0, -1000.125f, 0}, 1000.f, 3};*/
+        data_raw_ptr->spheres_size = spheres_size;
+        data_raw_ptr->spheres_ptr = spheres_ptr;
     }
 }
 }
@@ -194,34 +192,28 @@ void render(thrust::device_ptr<cuda::data> cuda_data, thrust::device_ptr<math::v
 
 void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8vec3> &image_texels)
 {
-    thrust::device_vector<math::vec3> framebuffer(static_cast<std::size_t>(width) * height);
-
-    auto const threads_number = dim3{8, 8, 1};
-    auto const blocks_number = dim3{width / threads_number.x + 1, height / threads_number.y + 1, 1};
-
     auto data_ptr = thrust::device_malloc<cuda::data>(1);
-    auto data_raw_ptr = thrust::raw_pointer_cast(data_ptr);
 
-    data_raw_ptr->spheres.push_back(primitives::sphere{math::vec3{0, 1, 0}, 1.f, 0});
-    data_raw_ptr->spheres.push_back(primitives::sphere{math::vec3{0, -1000.125f, 0}, 1000.f, 3});
+    {
+        thrust::device_vector<primitives::sphere> spheres;
 
-    data_raw_ptr->spheres_ptr = thrust::device_ptr<primitives::sphere>{data_raw_ptr->spheres.data()};
-    data_raw_ptr->spheres_size = static_cast<std::uint32_t>(data_raw_ptr->spheres.size());
+        spheres.push_back(primitives::sphere{math::vec3{0, 1, 0}, 1.f, 0});
+        spheres.push_back(primitives::sphere{math::vec3{0, -1000.125f, 0}, 1000.f, 3});
 
-    /*cuda::data cuda_data;
+        cuda::populate_world<<<1, 1>>>(data_ptr, spheres.data(), static_cast<std::uint32_t>(spheres.size()));
+    }
 
-    thrust::device_vector<primitives::sphere> spheres;
-
-    spheres.push_back(primitives::sphere{math::vec3{0, 1, 0}, 1.f, 0});
-    spheres.push_back(primitives::sphere{math::vec3{0, -1000.125f, 0}, 1000.f, 3});
-
-    cuda_data.spheres_ptr = thrust::device_ptr<primitives::sphere>{spheres.data()};
-    cuda_data.spheres_size = static_cast<std::uint32_t>(spheres.size());*/
+    thrust::device_vector<math::vec3> framebuffer(static_cast<std::size_t>(width) * height);
 
     cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
     cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
 
-    render<<<blocks_number, threads_number>>>(data_ptr, framebuffer.data(), width, height);
+    {
+        auto const threads_number = dim3{8, 8, 1};
+        auto const blocks_number = dim3{width / threads_number.x + 1, height / threads_number.y + 1, 1};
+
+        render<<<blocks_number, threads_number>>>(data_ptr, framebuffer.data(), width, height);
+    }
 
     cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
     cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
