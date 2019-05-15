@@ -11,7 +11,7 @@ namespace cuda {
 struct data final {
     static auto constexpr bounces_number = 64u;
 
-    thrust::device_vector<primitives::sphere> spheres;
+    //thrust::device_vector<primitives::sphere> spheres;
 
     thrust::device_ptr<primitives::sphere> spheres_ptr;
     std::uint32_t spheres_size{0};
@@ -60,7 +60,7 @@ __device__ primitives::hit intersect(T1 &&ray, T2 &&sphere, float time_min, floa
     auto b = math::dot(oc, ray.direction);
     auto c = math::dot(oc, oc) - sphere.radius * sphere.radius;
 
-    auto discriminant =  b * b - a * c;
+    auto discriminant = b * b - a * c;
 
     if (discriminant > 0.f) {
         float temp = (-b - std::sqrt(b * b - a * c)) / a;
@@ -96,23 +96,24 @@ __device__ primitives::hit intersect(T1 &&ray, T2 &&sphere, float time_min, floa
 }
 
 template<class T>
-__device__ primitives::hit hit_world(thrust::device_ptr<primitives::sphere> spheres_ptr, std::uint32_t spheres_size, T &&ray)
+__device__ primitives::hit hit_world(thrust::device_ptr<cuda::data> cuda_data, T &&ray)
 {
     auto const kMAX = FLT_MAX;// std::numeric_limits<float>::max();
     auto const kMIN = .008f;
 
     auto min_time = kMAX;
 
-    auto spheres_raw_ptr = thrust::raw_pointer_cast(spheres_ptr);
+    auto data_raw_ptr = thrust::raw_pointer_cast(cuda_data);
+
+    auto spheres_raw_ptr = thrust::raw_pointer_cast(data_raw_ptr->spheres_ptr);
 
     primitives::hit closest_hit;
 
-    for (auto sphere_index = 0u; sphere_index < spheres_size; ++sphere_index) {
+    for (auto sphere_index = 0u; sphere_index < data_raw_ptr->spheres_size; ++sphere_index) {
         auto hit = cuda::intersect(ray, spheres_raw_ptr[sphere_index], kMIN, kMAX);
 
-        if (hit.valid) {
-            min_time = fmin(min_time, hit.time);
-
+        if (hit.valid && hit.time < min_time) {
+            min_time = hit.time;
             closest_hit = std::move(hit);
         }
     }
@@ -128,10 +129,10 @@ __device__ math::vec3 color(thrust::device_ptr<cuda::data> cuda_data, T &&ray)
     auto scattered_ray = std::forward<T>(ray);
     //math::vec3 energy_absorption{0};
     
-    auto data_raw_ptr = thrust::raw_pointer_cast(cuda_data.get());
+    auto data_raw_ptr = thrust::raw_pointer_cast(cuda_data);
 
     for (auto bounce = 0u; bounce < data_raw_ptr->bounces_number; ++bounce) {
-        auto hit = cuda::hit_world(data_raw_ptr->spheres_ptr, data_raw_ptr->spheres_size, scattered_ray);
+        auto hit = cuda::hit_world(cuda_data, scattered_ray);
 
         if (hit.valid) {
             /*if (auto scattered = raytracer::apply_material(raytracer_data, scattered_ray, hit.value()); scattered) {
@@ -197,8 +198,8 @@ void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8ve
     {
         thrust::device_vector<primitives::sphere> spheres;
 
-        spheres.push_back(primitives::sphere{math::vec3{0, 1, 0}, 1.f, 0});
-        spheres.push_back(primitives::sphere{math::vec3{0, -1000.125f, 0}, 1000.f, 3});
+        spheres.push_back(primitives::sphere{math::vec3{0, 0, -1}, .5f, 0});
+        spheres.push_back(primitives::sphere{math::vec3{0, -100.5f, -1}, 100.f, 3});
 
         cuda::populate_world<<<1, 1>>>(data_ptr, spheres.data(), static_cast<std::uint32_t>(spheres.size()));
     }
