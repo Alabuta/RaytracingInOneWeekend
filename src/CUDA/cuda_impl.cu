@@ -9,7 +9,7 @@
 
 namespace cuda {
 struct data final {
-    static auto constexpr sampling_number = 32u;
+    static auto constexpr sampling_number = 128u;
     static auto constexpr bounces_number = 64u;
 
     std::uint32_t width{0}, height{0};
@@ -23,13 +23,17 @@ struct data final {
 };
 
 struct rgb32_to_rgb8 final {
-    __host__ __device__
-    math::u8vec3 operator() (math::vec3 const &color) const noexcept
+    template<class T>
+    __host__ __device__ math::u8vec3 operator() (T &&color) const
     {
+        auto const gamma = math::vec3{1.f / 2.2f};
+
+        auto srgb = math::pow(std::forward<T>(color), gamma);
+
         return {
-            static_cast<std::uint8_t>(color.x * 255.f),
-            static_cast<std::uint8_t>(color.y * 255.f),
-            static_cast<std::uint8_t>(color.z * 255.f)
+            static_cast<std::uint8_t>(srgb.x * 255.f),
+            static_cast<std::uint8_t>(srgb.y * 255.f),
+            static_cast<std::uint8_t>(srgb.z * 255.f)
         };
     }
 };
@@ -47,6 +51,21 @@ void check_errors(cudaError_t error_code, std::string const &file_name, std::int
     cudaDeviceReset();
 
     throw std::runtime_error(error_stream.str());
+}
+
+__device__ math::vec3 random_in_unit_sphere(curandState *local_random_state)
+{
+    math::vec3 vector;
+
+    do {
+        vector = math::vec3{
+            curand_uniform(local_random_state) * 2.f - 1.f,
+            curand_uniform(local_random_state) * 2.f - 1.f,
+            curand_uniform(local_random_state) * 2.f - 1.f
+        };
+    } while (math::length(vector) > 1.f);
+
+    return vector;
 }
 
 __device__ math::vec3 background_color(float t)
@@ -113,9 +132,9 @@ __device__ primitives::hit hit_world(thrust::device_ptr<cuda::data> cuda_data, T
     primitives::hit closest_hit;
 
     for (auto sphere_index = 0u; sphere_index < data_raw_ptr->spheres_size; ++sphere_index) {
-        auto hit = cuda::intersect(ray, spheres_raw_ptr[sphere_index], kMIN, kMAX);
+        auto hit = cuda::intersect(ray, spheres_raw_ptr[sphere_index], kMIN, min_time);
 
-        if (hit.valid && hit.time < min_time) {
+        if (hit.valid) {
             min_time = hit.time;
             closest_hit = std::move(hit);
         }
@@ -125,7 +144,7 @@ __device__ primitives::hit hit_world(thrust::device_ptr<cuda::data> cuda_data, T
 }
 
 template<class T>
-__device__ math::vec3 color(thrust::device_ptr<cuda::data> cuda_data, T &&ray)
+__device__ math::vec3 color(thrust::device_ptr<cuda::data> cuda_data, curandState *local_random_state, T &&ray)
 {
     math::vec3 attenuation{1};
 
@@ -145,7 +164,13 @@ __device__ math::vec3 color(thrust::device_ptr<cuda::data> cuda_data, T &&ray)
             }
 
             else return math::vec3{0};*/
-            return hit.normal * .5f + .5f;
+
+            auto random_direction = cuda::random_in_unit_sphere(local_random_state);
+            auto target = hit.position + hit.normal + random_direction;
+
+            scattered_ray = math::ray{hit.position, target - hit.position};
+
+            attenuation *= .5f;
         }
 
         else return cuda::background_color(scattered_ray.unit_direction().y * .5f + .5f) * attenuation;
@@ -214,7 +239,7 @@ void render(thrust::device_ptr<cuda::data> cuda_data, thrust::device_ptr<math::v
 
         math::ray ray{origin, lower_left_corner + horizontal * _u + vertical * _v};
 
-        color += cuda::color(cuda_data, std::move(ray));
+        color += cuda::color(cuda_data, &local_random_state, std::move(ray));
     }
 
     color /= static_cast<float>(data_raw_ptr->sampling_number);
@@ -232,14 +257,20 @@ void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8ve
 
     thrust::device_vector<curandState> random_states(pixels_number);
 
-    thrust::generate(random_states.begin(), random_states.end(), [pixel_index = 0] __device__ () mutable
     {
-        curandState random_state;
+        thrust::device_vector<std::size_t> pixel_indices(pixels_number);
+        thrust::sequence(thrust::device, pixel_indices.begin(), pixel_indices.end(), 0);
 
-        curand_init(1984, pixel_index++, 0, &random_state);
+        thrust::transform(thrust::device, pixel_indices.begin(), pixel_indices.end(), random_states.begin(),
+                          [] __device__ (std::size_t pixel_index)
+        {
+            curandState random_state;
 
-        return random_state;
-    });
+            curand_init(1984, pixel_index, 0, &random_state);
+
+            return random_state;
+        });
+    }
 
     auto data_ptr = thrust::device_malloc<cuda::data>(1);
 

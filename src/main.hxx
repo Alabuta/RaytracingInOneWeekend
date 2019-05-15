@@ -21,6 +21,9 @@ using namespace std::string_literals;
     #include <thrust/host_vector.h>
 
     #include <thrust/count.h>
+    #include <thrust/sequence.h>
+
+    #include <thrust/execution_policy.h>
 
     #include <thrust/iterator/transform_iterator.h>
 #endif
