@@ -15,6 +15,7 @@ using namespace std::string_literals;
 
     #include <thrust/device_malloc.h>
     #include <thrust/device_free.h>
+    #include <curand_kernel.h>
 
     #include <thrust/device_vector.h>
     #include <thrust/host_vector.h>

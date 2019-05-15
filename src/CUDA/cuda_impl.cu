@@ -9,12 +9,15 @@
 
 namespace cuda {
 struct data final {
+    static auto constexpr sampling_number = 32u;
     static auto constexpr bounces_number = 64u;
 
-    //thrust::device_vector<primitives::sphere> spheres;
+    std::uint32_t width{0}, height{0};
 
     thrust::device_ptr<primitives::sphere> spheres_ptr;
     std::uint32_t spheres_size{0};
+
+    thrust::device_ptr<curandState> random_states_ptr;
 
     //std::vector<material::types> materials;
 };
@@ -151,22 +154,37 @@ __device__ math::vec3 color(thrust::device_ptr<cuda::data> cuda_data, T &&ray)
     return math::vec3{0};
 }
 
-__global__ void populate_world(thrust::device_ptr<cuda::data> data_ptr, thrust::device_ptr<primitives::sphere> spheres_ptr, std::uint32_t spheres_size)
+__global__ void init_raytracer_data(
+    thrust::device_ptr<cuda::data> data_ptr,
+    std::uint32_t width, std::uint32_t height,
+    thrust::device_ptr<primitives::sphere> spheres_ptr, std::uint32_t spheres_size,
+    thrust::device_ptr<curandState> random_states_ptr)
 {
-    if (threadIdx.x == 0 && blockIdx.x == 0) {
-        auto data_raw_ptr = thrust::raw_pointer_cast(data_ptr);
+    if (threadIdx.x != 0 || blockIdx.x != 0)
+        return;
 
-        data_raw_ptr->spheres_size = spheres_size;
-        data_raw_ptr->spheres_ptr = spheres_ptr;
-    }
+    auto data_raw_ptr = thrust::raw_pointer_cast(data_ptr);
+
+    data_raw_ptr->width = width;
+    data_raw_ptr->height = height;
+
+    data_raw_ptr->spheres_size = spheres_size;
+    data_raw_ptr->spheres_ptr = spheres_ptr;
+
+    data_raw_ptr->random_states_ptr = random_states_ptr;
 }
 }
 
 __global__
-void render(thrust::device_ptr<cuda::data> cuda_data, thrust::device_ptr<math::vec3> framebuffer_ptr, std::uint32_t width, std::uint32_t height)
+void render(thrust::device_ptr<cuda::data> cuda_data, thrust::device_ptr<math::vec3> framebuffer_ptr)
 {
     auto x = blockIdx.x * blockDim.x + threadIdx.x;
     auto y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    auto data_raw_ptr = thrust::raw_pointer_cast(cuda_data);
+
+    auto const width = data_raw_ptr->width;
+    auto const height = data_raw_ptr->height;
 
     if (!(x < width && y < height))
         return;
@@ -185,36 +203,64 @@ void render(thrust::device_ptr<cuda::data> cuda_data, thrust::device_ptr<math::v
     math::vec3 horizontal{4, 0, 0};
     math::vec3 vertical{0, 2, 0};
 
-    math::ray ray{origin, lower_left_corner + horizontal * u + vertical * v};
+    auto random_states_raw_ptr = thrust::raw_pointer_cast(data_raw_ptr->random_states_ptr);
+    auto local_random_state = random_states_raw_ptr[pixel_index];
 
-    framebuffer_raw_ptr[pixel_index] = cuda::color(cuda_data, std::move(ray));
+    math::vec3 color{0};
+
+    for (auto s = 0u; s < data_raw_ptr->sampling_number; ++s) {
+        auto _u = u + curand_uniform(&local_random_state) / static_cast<float>(width);
+        auto _v = v + curand_uniform(&local_random_state) / static_cast<float>(height);
+
+        math::ray ray{origin, lower_left_corner + horizontal * _u + vertical * _v};
+
+        color += cuda::color(cuda_data, std::move(ray));
+    }
+
+    color /= static_cast<float>(data_raw_ptr->sampling_number);
+
+    framebuffer_raw_ptr[pixel_index] = color;
 }
 
 
 void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8vec3> &image_texels)
 {
+    auto const threads_number = dim3{8, 8, 1};
+    auto const blocks_number = dim3{width / threads_number.x + 1, height / threads_number.y + 1, 1};
+
+    auto const pixels_number = static_cast<std::size_t>(width) * height;
+
+    thrust::device_vector<curandState> random_states(pixels_number);
+
+    thrust::generate(random_states.begin(), random_states.end(), [pixel_index = 0] __device__ () mutable
+    {
+        curandState random_state;
+
+        curand_init(1984, pixel_index++, 0, &random_state);
+
+        return random_state;
+    });
+
     auto data_ptr = thrust::device_malloc<cuda::data>(1);
 
-    {
-        thrust::device_vector<primitives::sphere> spheres;
+    thrust::device_vector<primitives::sphere> spheres;
 
-        spheres.push_back(primitives::sphere{math::vec3{0, 0, -1}, .5f, 0});
-        spheres.push_back(primitives::sphere{math::vec3{0, -100.5f, -1}, 100.f, 3});
+    spheres.push_back(primitives::sphere{math::vec3{0, 0, -1}, .5f, 0});
+    spheres.push_back(primitives::sphere{math::vec3{0, -100.5f, -1}, 100.f, 3});
 
-        cuda::populate_world<<<1, 1>>>(data_ptr, spheres.data(), static_cast<std::uint32_t>(spheres.size()));
-    }
+    cuda::init_raytracer_data<<<1, 1>>>(
+        data_ptr,
+        width, height,
+        spheres.data(), static_cast<std::uint32_t>(spheres.size()),
+        random_states.data()
+    );
 
-    thrust::device_vector<math::vec3> framebuffer(static_cast<std::size_t>(width) * height);
+    thrust::device_vector<math::vec3> framebuffer(pixels_number);
 
     cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
     cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
 
-    {
-        auto const threads_number = dim3{8, 8, 1};
-        auto const blocks_number = dim3{width / threads_number.x + 1, height / threads_number.y + 1, 1};
-
-        render<<<blocks_number, threads_number>>>(data_ptr, framebuffer.data(), width, height);
-    }
+    render<<<blocks_number, threads_number>>>(data_ptr, framebuffer.data());
 
     cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
     cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
