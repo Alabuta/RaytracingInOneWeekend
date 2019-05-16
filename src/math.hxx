@@ -5,7 +5,7 @@
 
 namespace math {
     template<class T>
-    constexpr T radians(T degrees)
+    CUDA_HOST_DEVICE constexpr T radians(T degrees)
     {
         static_assert(std::numeric_limits<T>::is_iec559, "'radians' only accept floating-point input");
 
@@ -13,7 +13,7 @@ namespace math {
     }
 
     template<class T>
-    constexpr T degrees(T radians)
+    CUDA_HOST_DEVICE constexpr T degrees(T radians)
     {
         static_assert(std::numeric_limits<T>::is_iec559, "'degrees' only accept floating-point input");
 
