@@ -5,6 +5,7 @@
 
 #include "math.hxx"
 #include "primitives.hxx"
+#include "camera.hxx"
 
 
 namespace cuda {
@@ -16,6 +17,8 @@ struct data final {
 
     thrust::device_ptr<primitives::sphere> spheres_ptr;
     std::uint32_t spheres_size{0};
+
+    raytracer::camera camera;
 
     thrust::device_ptr<curandState> random_states_ptr;
 
@@ -195,6 +198,13 @@ __global__ void init_raytracer_data(
 
     data_raw_ptr->spheres_size = spheres_size;
     data_raw_ptr->spheres_ptr = spheres_ptr;
+    data_raw_ptr->random_engines = thrust::raw_pointer_cast(random_engines);
+
+    data_raw_ptr->camera = raytracer::camera{
+        math::vec3{0, 0, 0}, math::vec3{0, 0, -1}, math::vec3{0, 1, 0},
+        static_cast<float>(width) / static_cast<float>(height), 42.f,
+        .0625f, 1.f//math::distance(math::vec3{-4, 3.2, 5}, math::vec3{0, 1, 0})
+    };
 
     data_raw_ptr->random_states_ptr = random_states_ptr;
 }
@@ -221,13 +231,6 @@ void render(thrust::device_ptr<cuda::data> cuda_data, thrust::device_ptr<math::v
     auto u = static_cast<float>(x) / width;
     auto v = 1.f - static_cast<float>(y) / height;
 
-    math::vec3 origin{0};
-
-    math::vec3 lower_left_corner{-2, -1, -1};
-
-    math::vec3 horizontal{4, 0, 0};
-    math::vec3 vertical{0, 2, 0};
-
     auto random_states_raw_ptr = thrust::raw_pointer_cast(data_raw_ptr->random_states_ptr);
     auto local_random_state = random_states_raw_ptr[pixel_index];
 
@@ -239,7 +242,7 @@ void render(thrust::device_ptr<cuda::data> cuda_data, thrust::device_ptr<math::v
 
         math::ray ray{origin, lower_left_corner + horizontal * _u + vertical * _v};
 
-        color += cuda::color(cuda_data, &local_random_state, std::move(ray));
+        color += cuda::color(*data_raw_ptr, random_engine, data_raw_ptr->camera.ray(u, v));
     }
 
     color /= static_cast<float>(data_raw_ptr->sampling_number);
