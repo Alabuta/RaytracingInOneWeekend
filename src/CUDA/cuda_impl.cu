@@ -9,16 +9,28 @@
 
 
 namespace cuda {
+struct random_engine final {
+    thrust::minstd_rand random_generator;
+
+    thrust::uniform_real_distribution<float> generator{0.f, 1.f};
+
+    __device__ float generate()
+    {
+        return generator(random_generator);
+    }
+};
+
 struct data final {
     static auto constexpr sampling_number = 128u;
     static auto constexpr bounces_number = 64u;
 
     std::uint32_t width{0}, height{0};
 
+    random_engine *random_engines;
+    curandState *random_states;
 
     raytracer::camera camera;
 
-    thrust::device_ptr<curandState> random_states_ptr;
     primitives::sphere *spheres_array;
     std::uint32_t spheres_size{0};
 
@@ -56,15 +68,30 @@ void check_errors(cudaError_t error_code, std::string const &file_name, std::int
     throw std::runtime_error(error_stream.str());
 }
 
-__device__ math::vec3 random_in_unit_sphere(curandState *local_random_state)
+__device__ math::vec3 random_in_unit_sphere(cuda::random_engine &random_engine)
 {
     math::vec3 vector;
 
     do {
         vector = math::vec3{
-            curand_uniform(local_random_state) * 2.f - 1.f,
-            curand_uniform(local_random_state) * 2.f - 1.f,
-            curand_uniform(local_random_state) * 2.f - 1.f
+            random_engine.generate() * 2.f - 1.f,
+            random_engine.generate() * 2.f - 1.f,
+            random_engine.generate() * 2.f - 1.f
+        };
+    } while (math::length(vector) > 1.f);
+
+    return vector;
+}
+
+__device__ math::vec3 random_in_unit_sphere(curandState &local_random_state)
+{
+    math::vec3 vector;
+
+    do {
+        vector = math::vec3{
+            curand_uniform(&local_random_state) * 2.f - 1.f,
+            curand_uniform(&local_random_state) * 2.f - 1.f,
+            curand_uniform(&local_random_state) * 2.f - 1.f
         };
     } while (math::length(vector) > 1.f);
 
@@ -244,6 +271,23 @@ void render(thrust::device_ptr<cuda::data> cuda_data, thrust::device_ptr<math::v
     framebuffer_raw_ptr[pixel_index] = color;
 }
 
+__global__ void setupRandStates(thrust::device_ptr<curandState> state, std::uint32_t width, std::uint32_t height)
+{
+    auto x = blockIdx.x * blockDim.x + threadIdx.x;
+    auto y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (!(x < width && y < height))
+        return;
+
+    auto pixel_index = x + y * width;
+
+    if (!(pixel_index < width * height))
+        return;
+
+    auto state_ptr = thrust::raw_pointer_cast(state);
+
+    curand_init(1234, pixel_index / 10, 0, &state_ptr[pixel_index / 10]);
+}
 
 void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8vec3> &image_texels)
 {
@@ -251,39 +295,70 @@ void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8ve
     auto const blocks_number = dim3{width / threads_number.x + 1, height / threads_number.y + 1, 1};
 
     auto const pixels_number = static_cast<std::size_t>(width) * height;
+    std::cout << pixels_number << '\n';
 
+    thrust::device_vector<cuda::random_engine> random_engines;// (pixels_number);
     thrust::device_vector<curandState> random_states(pixels_number);
+    std::cout << random_engines.size() << '\n';
+    std::cout << random_states.size() << '\n';
+
+    cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
+    cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
 
     {
-        thrust::device_vector<std::size_t> pixel_indices(pixels_number);
-        thrust::sequence(thrust::device, pixel_indices.begin(), pixel_indices.end(), 0);
-
-        thrust::transform(thrust::device, pixel_indices.begin(), pixel_indices.end(), random_states.begin(),
-                          [] __device__ (std::size_t pixel_index)
+        /*thrust::generate(random_states.begin(), random_states.end(), [pixel_index = 0] __device__ () mutable
         {
             curandState random_state;
 
-            curand_init(1984, pixel_index, 0, &random_state);
+            curand_init(1234, pixel_index++, 0, &random_state);
 
             return random_state;
-        });
+        });*/
+
+        /*thrust::device_vector<std::uint64_t> pixel_indices(pixels_number);
+        thrust::sequence(thrust::device, pixel_indices.begin(), pixel_indices.end(), 0);
+
+        thrust::transform(thrust::device, pixel_indices.begin(), pixel_indices.end(), random_states.begin(),
+                          [] __device__(std::size_t pixel_index)
+        {
+            curandState random_state;
+
+            //curand_init(1234, pixel_index, 0, &random_state);
+
+            return random_state;
+        });*/
+
+        setupRandStates<<<blocks_number, threads_number>>>(random_states.data(), width, height);
     }
 
-    auto data_ptr = thrust::device_malloc<cuda::data>(1);
+    cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
+    cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
 
     thrust::device_vector<primitives::sphere> spheres;
 
     spheres.push_back(primitives::sphere{math::vec3{0, 0, -1}, .5f, 0});
     spheres.push_back(primitives::sphere{math::vec3{0, -100.5f, -1}, 100.f, 3});
 
+    cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
+    cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
+
+    thrust::device_vector<math::vec3> framebuffer(pixels_number);
+
+    cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
+    cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
+
+    auto data_ptr = thrust::device_malloc<cuda::data>(1);
+
+    cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
+    cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
+
     cuda::init_raytracer_data<<<1, 1>>>(
         data_ptr,
         width, height,
         spheres.data(), static_cast<std::uint32_t>(spheres.size()),
+        random_engines.data(),
         random_states.data()
     );
-
-    thrust::device_vector<math::vec3> framebuffer(pixels_number);
 
     cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
     cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
