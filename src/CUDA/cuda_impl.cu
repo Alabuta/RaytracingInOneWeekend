@@ -6,6 +6,7 @@
 #include "math.hxx"
 #include "primitives.hxx"
 #include "camera.hxx"
+#include "material.hxx"
 
 
 namespace cuda {
@@ -87,6 +88,13 @@ void check_errors(cudaError_t error_code, std::string const &file_name, std::int
     throw std::runtime_error(error_stream.str());
 }
 
+__device__ float schlick_reflection_probability(float refraction_index, float cosine_theta)
+{
+    auto reflection_coefficient = std::pow((1.f - refraction_index) / (1.f + refraction_index), 2);
+
+    return reflection_coefficient + (1.f - reflection_coefficient) * std::pow(1.f - cosine_theta, 5);
+}
+
 __device__ math::vec3 background_color(float t)
 {
     return math::mix(math::vec3{1}, math::vec3{.5, .7, 1}, t);
@@ -158,6 +166,77 @@ __device__ primitives::hit hit_world(cuda::data &cuda_data, T &&ray)
     return closest_hit;
 }
 
+struct apply_material final {
+    cuda::random_engine &random_engine;
+    math::ray ray;
+    primitives::hit hit;
+
+    __device__
+    apply_material(cuda::random_engine &random_engine, math::ray const &ray, primitives::hit const &hit)
+        : random_engine{random_engine}, ray{ray}, hit{hit} { }
+
+    __device__
+    material::surface_response operator() (material::lambert const &material)
+    {
+        auto random_direction = math::normalize(random_engine.random_in_unit_sphere());
+        auto target = hit.normal + random_direction;
+
+        auto scattered_ray = math::ray{hit.position, target};
+        auto attenuation = material.albedo;
+
+        return material::surface_response{scattered_ray, attenuation, true};
+    }
+
+    __device__
+    material::surface_response operator() (material::metal const &material)
+    {
+        auto reflected = math::reflect(ray.unit_direction(), hit.normal);
+
+        auto random_direction = math::normalize(random_engine.random_in_unit_sphere());
+
+        auto scattered_ray = math::ray{hit.position, reflected + random_direction * material.roughness};
+        auto attenuation = material.albedo;
+
+        if (math::dot(scattered_ray.direction, hit.normal) > 0.f)
+            return material::surface_response{scattered_ray, attenuation, true};
+
+        return { };
+    }
+
+    __device__
+    material::surface_response operator() (material::dielectric const &material)
+    {
+        auto outward_normal = -hit.normal;
+        auto refraction_index = material.refraction_index;
+        auto cosine_theta = math::dot(ray.unit_direction(), hit.normal);
+
+        if (cosine_theta <= 0.f) {
+            outward_normal *= -1.f;
+            refraction_index = 1.f / refraction_index;
+            cosine_theta *= -1.f;
+        }
+
+        auto attenuation = material.albedo;
+        auto refracted = math::refract(ray.unit_direction(), outward_normal, refraction_index);
+
+        auto reflection_probability = 1.f;
+
+        if (math::length(refracted) > 0.f)
+            reflection_probability = cuda::schlick_reflection_probability(refraction_index, cosine_theta);
+
+        math::ray scattered_ray;
+
+        if (random_engine.generate() < reflection_probability) {
+            auto reflected = math::reflect(ray.unit_direction(), hit.normal);
+            scattered_ray = math::ray{hit.position, reflected};
+        }
+
+        else scattered_ray = math::ray{hit.position, refracted};
+
+        return material::surface_response{scattered_ray, attenuation, true};
+    }
+};
+
 template<class T>
 __device__ math::vec3 color(cuda::data &cuda_data, cuda::random_engine &random_engine, T &&ray)
 {
@@ -170,20 +249,18 @@ __device__ math::vec3 color(cuda::data &cuda_data, cuda::random_engine &random_e
         auto hit = cuda::hit_world(cuda_data, scattered_ray);
 
         if (hit.valid) {
-            /*if (auto scattered = raytracer::apply_material(raytracer_data, scattered_ray, hit.value()); scattered) {
-                std::tie(scattered_ray, energy_absorption) = *scattered;
+            auto const material = raytracer_data.materials[hit.material_index];
+
+            auto surface_response = variant::apply_visitor(cuda::apply_material(random_engine, scattered_ray, hit), material);
+
+            if (surface_response.valid) {
+                scattered_ray = surface_response.ray;
+                energy_absorption = surface_response.attenuation;
 
                 attenuation *= energy_absorption;
             }
 
-            else return math::vec3{0};*/
-
-            auto random_direction = random_engine.random_in_unit_sphere();
-            auto target = hit.position + hit.normal + random_direction;
-
-            scattered_ray = math::ray{hit.position, target - hit.position};
-
-            attenuation *= .5f;
+            else return math::vec3{0};
         }
 
         else return cuda::background_color(scattered_ray.unit_direction().y * .5f + .5f) * attenuation;
@@ -196,6 +273,7 @@ __global__ void init_raytracer_data(
     thrust::device_ptr<cuda::data> data_ptr,
     std::uint32_t width, std::uint32_t height,
     thrust::device_ptr<primitives::sphere> spheres_ptr, std::uint32_t spheres_size,
+    thrust::device_ptr<material::types> materials_ptr,
     thrust::device_ptr<cuda::random_engine> random_engines)
 {
     if (threadIdx.x != 0 || blockIdx.x != 0)
@@ -273,11 +351,20 @@ void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8ve
             return cuda::random_engine(pixel_index);
         });
     }
+    thrust::device_vector<material::types> materials;
+
+    materials.push_back(material::lambert{math::vec3{.1, .2, .5}});
+    materials.push_back(material::metal{math::vec3{.8, .6, .2}, 0});
+    materials.push_back(material::dielectric{math::vec3{1}, 1.5f});
+    materials.push_back(material::lambert{math::vec3{.64, .8, .0}});
 
     thrust::device_vector<primitives::sphere> spheres;
 
     spheres.push_back(primitives::sphere{math::vec3{0, 0, -1}, .5f, 0});
     spheres.push_back(primitives::sphere{math::vec3{0, -100.5f, -1}, 100.f, 3});
+    spheres.push_back(primitives::sphere{math::vec3{+1, .5f, 0}, .5f, 1});
+    spheres.push_back(primitives::sphere{math::vec3{-1, .5f, 0}, .5f, 2});
+    spheres.push_back(primitives::sphere{math::vec3{-1, .5f, 0}, -.499f, 2});
 
     auto data_ptr = thrust::device_malloc<cuda::data>(1);
 
@@ -288,6 +375,7 @@ void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8ve
         data_ptr,
         width, height,
         spheres.data(), static_cast<std::uint32_t>(spheres.size()),
+        materials.data(),
         random_engines.data()
     );
 
