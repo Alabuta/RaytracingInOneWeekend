@@ -11,18 +11,32 @@
 
 namespace cuda {
 struct random_engine final {
-    curandStatePhilox4_32_10_t random_state;
+    //curandStateXORWOW_t random_state;
+    //curandStatePhilox4_32_10_t random_state;
+    std::uint32_t random_state;
 
     random_engine() = default;
 
-    __device__ random_engine(std::uint64_t pixel_index)
+    __device__ std::uint32_t rand_xorshift()
     {
-        curand_init(1234, pixel_index, 0, &random_state);
+        // Xorshift algorithm from George Marsaglia's paper
+        random_state ^= (random_state << 13);
+        random_state ^= (random_state >> 17);
+        random_state ^= (random_state << 5);
+
+        return random_state;
+    }
+
+    __device__ random_engine(std::uint32_t seed)
+    {
+        //curand_init(1234, seed, 0, &random_state);
+        random_state = seed;
     }
 
     __device__ float generate()
     {
-        return curand_uniform(&random_state);
+        //return curand_uniform(&random_state);
+        return static_cast<float>(rand_xorshift()) * (1.f / 4294967296.f);
     }
 
     __device__ math::vec3 random_in_unit_sphere()
