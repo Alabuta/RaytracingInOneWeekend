@@ -56,8 +56,8 @@ struct random_engine final {
 };
 
 struct data final {
-    static auto constexpr sampling_number = 128u;
-    static auto constexpr bounces_number = 64u;
+    static auto constexpr sampling_number = 48u;
+    static auto constexpr bounces_number = 32u;
 
     std::uint32_t width{0}, height{0};
 
@@ -65,10 +65,21 @@ struct data final {
 
     raytracer::camera camera;
 
-    primitives::sphere *spheres_array;
-    std::uint32_t spheres_size{0};
+    primitives::sphere *spheres;
+    std::uint32_t spheres_number{0};
 
-    //std::vector<material::types> materials;
+    material::types *materials;
+
+    __device__ math::vec3 render(std::uint32_t pixel_index);
+};
+
+struct data2 final {
+    cuda::data *data_ptr;
+
+    __device__ math::vec3 operator() (std::uint32_t pixel_index)
+    {
+        return data_ptr->render(pixel_index);
+    }
 };
 
 struct rgb32_to_rgb8 final {
@@ -252,7 +263,7 @@ struct apply_material final {
 };
 
 template<class T>
-__device__ math::vec3 color(cuda::data &raytracer_data, std::uint64_t pixel_index, T &&ray)
+__device__ math::vec3 color(cuda::data &raytracer_data, std::uint32_t pixel_index, T &&ray)
 {
     math::vec3 attenuation{1};
 
@@ -299,7 +310,7 @@ void render(thrust::device_ptr<cuda::data> raytracer_data, thrust::device_ptr<ma
     if (!(x < width && y < height))
         return;
 
-    auto pixel_index = x + static_cast<std::uint64_t>(y) * width;
+    auto pixel_index = x + static_cast<std::uint32_t>(y) * width;
 
     auto &random_engine = raytracer_data_ptr->random_engines[pixel_index];
 
@@ -336,44 +347,36 @@ __global__ void init_raytracer_data(
 
     data_raw_ptr->camera = raytracer::camera{
         math::vec3{0, 0, 0}, math::vec3{0, 0, -1}, math::vec3{0, 1, 0},
-        static_cast<float>(width) / static_cast<float>(height), 90.f,
+        static_cast<float>(width) / static_cast<float>(height), 88.f,
         .0625f, 1.f//math::distance(math::vec3{-4, 3.2, 5}, math::vec3{0, 1, 0})
     };
 
-    data_raw_ptr->spheres_size = spheres_size;
-    data_raw_ptr->spheres_array = thrust::raw_pointer_cast(spheres_ptr);
+    data_raw_ptr->spheres_number = spheres_number;
+    data_raw_ptr->spheres = thrust::raw_pointer_cast(spheres_ptr);
+
+    data_raw_ptr->materials = thrust::raw_pointer_cast(materials_ptr);
 }
 
-__global__
-void render(thrust::device_ptr<cuda::data> cuda_data, thrust::device_ptr<math::vec3> framebuffer_ptr)
+
+__device__ math::vec3 cuda::data::render(std::uint32_t pixel_index)
 {
-    auto x = blockIdx.x * blockDim.x + threadIdx.x;
-    auto y = blockIdx.y * blockDim.y + threadIdx.y;
+    auto const y = pixel_index / width;
+    auto const x = pixel_index - y * width;
 
-    auto data_raw_ptr = thrust::raw_pointer_cast(cuda_data);
-
-    auto const width = data_raw_ptr->width;
-    auto const height = data_raw_ptr->height;
-
-    if (!(x < width && y < height))
-        return;
-
-    auto pixel_index = x + y * width;
-
-    auto &random_engine = data_raw_ptr->random_engines[pixel_index];
+    auto &random_engine = random_engines[pixel_index];
 
     math::vec3 color{0};
 
-    for (auto s = 0u; s < data_raw_ptr->sampling_number; ++s) {
+    for (auto s = 0u; s < sampling_number; ++s) {
         auto u = static_cast<float>(x + random_engine.generate()) / width;
         auto v = static_cast<float>(y + random_engine.generate()) / height;
 
-        color += cuda::color(*data_raw_ptr, random_engine, data_raw_ptr->camera.ray(u, v));
+        color += cuda::color(*this, pixel_index, camera.ray(u, v));
     }
 
-    color /= static_cast<float>(data_raw_ptr->sampling_number);
+    color /= static_cast<float>(sampling_number);
 
-    framebuffer_ptr.get()[pixel_index] = color;
+    return color;
 }
 }
 
@@ -389,16 +392,15 @@ void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8ve
 
     thrust::device_vector<cuda::random_engine> random_engines(pixels_number);
 
-    {
-        thrust::device_vector<std::uint64_t> pixel_indices(pixels_number);
-        thrust::sequence(thrust::device, pixel_indices.begin(), pixel_indices.end(), 0);
+    thrust::device_vector<std::uint32_t> pixel_indices(pixels_number);
+    thrust::sequence(thrust::device, pixel_indices.begin(), pixel_indices.end(), 0);
 
-        thrust::transform(thrust::device, pixel_indices.begin(), pixel_indices.end(), random_engines.begin(),
-                          [] __device__(std::size_t pixel_index)
-        {
-            return cuda::random_engine(pixel_index);
-        });
-    }
+    thrust::transform(thrust::device, pixel_indices.begin(), pixel_indices.end(), random_engines.begin(),
+                        [] __device__ (auto pixel_index)
+    {
+        return cuda::random_engine(pixel_index);
+    });
+
     thrust::device_vector<material::types> materials;
 
     materials.push_back(material::lambert{math::vec3{.1, .2, .5}});
@@ -410,9 +412,9 @@ void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8ve
 
     spheres.push_back(primitives::sphere{math::vec3{0, 0, -1}, .5f, 0});
     spheres.push_back(primitives::sphere{math::vec3{0, -100.5f, -1}, 100.f, 3});
-    spheres.push_back(primitives::sphere{math::vec3{+1, .5f, 0}, .5f, 1});
-    spheres.push_back(primitives::sphere{math::vec3{-1, .5f, 0}, .5f, 2});
-    spheres.push_back(primitives::sphere{math::vec3{-1, .5f, 0}, -.499f, 2});
+    spheres.push_back(primitives::sphere{math::vec3{+1, 0, -1}, .5f, 1});
+    spheres.push_back(primitives::sphere{math::vec3{-1, 0, -1}, .5f, 2});
+    spheres.push_back(primitives::sphere{math::vec3{-1, 0, -1}, -.499f, 2});
 
     auto data_ptr = thrust::device_malloc<cuda::data>(1);
 
@@ -432,7 +434,12 @@ void cuda_impl(std::uint32_t width, std::uint32_t height, std::vector<math::u8ve
     cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
     cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);
 
-    cuda::render<<<blocks_number, threads_number>>>(data_ptr, framebuffer.data());
+    cuda::data2 raytracer;
+    raytracer.data_ptr = data_ptr.get();
+
+    thrust::transform(thrust::device, pixel_indices.begin(), pixel_indices.end(), framebuffer.begin(), raytracer);
+
+    //cuda::render<<<blocks_number, threads_number>>>(data_ptr, framebuffer.data());
 
     cuda::check_errors(cudaGetLastError(), __FILE__, __LINE__);
     cuda::check_errors(cudaDeviceSynchronize(), __FILE__, __LINE__);

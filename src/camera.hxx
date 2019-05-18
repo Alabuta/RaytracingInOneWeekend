@@ -64,7 +64,7 @@ private:
 #endif
 
     float aspect{1.f};
-    float vFOV{math::radians(72.f)};
+    float vFOV{72.f};
 
     float lens_radius{1.f};
 
