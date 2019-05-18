@@ -168,8 +168,8 @@ __device__ primitives::hit hit_world(cuda::data &cuda_data, T &&ray)
 
     primitives::hit closest_hit;
 
-    for (auto sphere_index = 0u; sphere_index < cuda_data.spheres_size; ++sphere_index) {
-        auto hit = cuda::intersect(ray, cuda_data.spheres_array[sphere_index], kMIN, min_time);
+    for (auto sphere_index = 0u; sphere_index < cuda_data.spheres_number; ++sphere_index) {
+        auto hit = cuda::intersect(ray, cuda_data.spheres[sphere_index], kMIN, min_time);
 
         if (hit.valid) {
             min_time = hit.time;
@@ -252,15 +252,17 @@ struct apply_material final {
 };
 
 template<class T>
-__device__ math::vec3 color(cuda::data &cuda_data, cuda::random_engine &random_engine, T &&ray)
+__device__ math::vec3 color(cuda::data &raytracer_data, std::uint64_t pixel_index, T &&ray)
 {
     math::vec3 attenuation{1};
 
     auto scattered_ray = std::forward<T>(ray);
-    //math::vec3 energy_absorption{0};
+    math::vec3 energy_absorption{0};
+
+    auto &random_engine = raytracer_data.random_engines[pixel_index];
     
-    for (auto bounce = 0u; bounce < cuda_data.bounces_number; ++bounce) {
-        auto hit = cuda::hit_world(cuda_data, scattered_ray);
+    for (auto bounce = 0u; bounce < raytracer_data.bounces_number; ++bounce) {
+        auto hit = cuda::hit_world(raytracer_data, scattered_ray);
 
         if (hit.valid) {
             auto const material = raytracer_data.materials[hit.material_index];
@@ -283,17 +285,49 @@ __device__ math::vec3 color(cuda::data &cuda_data, cuda::random_engine &random_e
     return math::vec3{0};
 }
 
+__global__
+void render(thrust::device_ptr<cuda::data> raytracer_data, thrust::device_ptr<math::vec3> framebuffer_ptr)
+{
+    auto x = blockIdx.x * blockDim.x + threadIdx.x;
+    auto y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    auto raytracer_data_ptr = thrust::raw_pointer_cast(raytracer_data);
+
+    auto const width = raytracer_data_ptr->width;
+    auto const height = raytracer_data_ptr->height;
+
+    if (!(x < width && y < height))
+        return;
+
+    auto pixel_index = x + static_cast<std::uint64_t>(y) * width;
+
+    auto &random_engine = raytracer_data_ptr->random_engines[pixel_index];
+
+    math::vec3 color{0};
+
+    for (auto s = 0u; s < raytracer_data_ptr->sampling_number; ++s) {
+        auto u = static_cast<float>(x + random_engine.generate()) / width;
+        auto v = static_cast<float>(y + random_engine.generate()) / height;
+
+        color += cuda::color(*raytracer_data_ptr, pixel_index, raytracer_data_ptr->camera.ray(u, v));
+    }
+
+    color /= static_cast<float>(raytracer_data_ptr->sampling_number);
+
+    framebuffer_ptr.get()[pixel_index] = color;
+}
+
 __global__ void init_raytracer_data(
-    thrust::device_ptr<cuda::data> data_ptr,
+    thrust::device_ptr<cuda::data> raytracer_data,
     std::uint32_t width, std::uint32_t height,
-    thrust::device_ptr<primitives::sphere> spheres_ptr, std::uint32_t spheres_size,
+    thrust::device_ptr<primitives::sphere> spheres_ptr, std::uint32_t spheres_number,
     thrust::device_ptr<material::types> materials_ptr,
     thrust::device_ptr<cuda::random_engine> random_engines)
 {
     if (threadIdx.x != 0 || blockIdx.x != 0)
         return;
 
-    auto data_raw_ptr = thrust::raw_pointer_cast(data_ptr);
+    auto data_raw_ptr = thrust::raw_pointer_cast(raytracer_data);
 
     data_raw_ptr->width = width;
     data_raw_ptr->height = height;
